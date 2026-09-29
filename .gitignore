@@ -1,0 +1,12 @@
+node_modules
+.next
+*.tsbuildinfo
+
+# env: real values stay local and in Vercel, never in git (the .example files are the templates)
+.env*
+!.env*.example
+
+# the Studio (studio/)
+studio/node_modules
+studio/dist
+studio/.sanity
