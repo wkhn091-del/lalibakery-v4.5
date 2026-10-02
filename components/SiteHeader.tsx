@@ -5,11 +5,12 @@ import type { SiteSettings } from "@/lib/content/types";
 import { ORDER_PAGE } from "@/lib/routes";
 import { fill } from "@/lib/text";
 import ScrollLink from "./ScrollLink";
+import CartLink from "./shop/CartLink";
 import { PhoneIcon } from "./Icons";
 
 // מופיע אחרי ה-hero. נעלם כשגוללים למטה (כדי לא להסתיר תוכן) וחוזר כשגוללים למעלה.
 // הטקסטים: "הגדרות כלליות" (כותרת, שם העסק, הטלפון); tel: הקישור לחיוג (lib/content/contact.ts)
-export default function SiteHeader({ header, name, phone, tel }: { header: SiteSettings["header"]; name: string; phone: string; tel: string }) {
+export default function SiteHeader({ header, name, phone, tel, cart }: { header: SiteSettings["header"]; name: string; phone: string; tel: string; cart: { href: string; label: string; labelWithCount: string } }) {
   const [show, setShow] = useState(false);
   useEffect(() => {
     const hero = document.getElementById("hero");
@@ -44,6 +45,7 @@ export default function SiteHeader({ header, name, phone, tel }: { header: SiteS
           ))}
         </nav>
         <div className="header-actions">
+          <CartLink {...cart} />
           <ScrollLink href={ORDER_PAGE} className="nav-link nav-order">{header.order}</ScrollLink>
           <a href={tel} className="header-phone" aria-label={fill(header.call, { phone })}>
             <PhoneIcon />

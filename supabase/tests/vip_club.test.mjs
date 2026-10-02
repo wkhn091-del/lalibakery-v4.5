@@ -4,7 +4,7 @@
 //
 //   npm i -D @electric-sql/pglite
 //   node supabase/tests/vip_club.test.mjs
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 
 const db = await PGlite.create();
@@ -30,7 +30,9 @@ await db.exec(`
   alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
   alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
 `);
-await db.exec(readFileSync(new URL("../migrations/20260928090000_vip_club.sql", import.meta.url), "utf8"));
+// every migration, in order: the club must keep working as later ones change the tables around it
+const dir = new URL("../migrations/", import.meta.url);
+for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) await db.exec(readFileSync(new URL(file, dir), "utf8"));
 console.log("migration applied");
 
 // ── a Supabase-like session: role + the JWT's sub ──

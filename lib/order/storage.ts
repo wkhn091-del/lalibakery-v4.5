@@ -9,7 +9,7 @@
   year typed with five digits shouldn't cost the whole cake). Storage that throws (private
   browsing, blocked, full) just means nothing is saved.
 */
-import { type Cat, categoryOf, COLORS, type Draft, EMPTY, LAST, type Step, SURPRISE } from "./model";
+import { addonProblem, type Cat, categoryOf, COLORS, type Draft, EMPTY, LAST, type Step, SURPRISE } from "./model";
 import { asDraft, DraftSchema } from "./schema";
 
 const KEY = "lali:wizard:v1";
@@ -36,7 +36,9 @@ export function fitToCatalog(cat: Cat, d: Draft, today: string): Draft {
     size: offered(d.size, c.sizes),
     base: offered(d.base, c.bases),
     cream: d.cream && c.creams.includes(d.cream) && cat.cream[d.cream] ? d.cream : null,
+    filling: d.filling && c.fillings?.includes(d.filling) && cat.filling[d.filling] ? d.filling : null,
     colors: d.colors.filter((id) => id === SURPRISE || COLORS.some((x) => x.id === id)),
+    addons: d.addons.filter((p, i, all) => all.findIndex((x) => x.key === p.key) === i && !addonProblem(cat, c.id, p)),
     date: d.date && d.date >= today ? d.date : "",
   };
 }

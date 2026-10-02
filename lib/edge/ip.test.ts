@@ -1,8 +1,8 @@
-// Rate-limit keys, and the middleware letting requests through when it can't check them.   npm test
+// Rate-limit keys, and the proxy letting requests through when it can't check them.   npm test
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { NextRequest, type NextFetchEvent } from "next/server";
-import { middleware } from "../../middleware";
+import { proxy } from "../../proxy";
 import { clientIp, ipKey } from "./ip";
 
 describe("ipKey", () => {
@@ -29,7 +29,7 @@ describe("clientIp", () => {
   });
 });
 
-describe("middleware", () => {
+describe("proxy", () => {
   const event = { waitUntil() {} } as unknown as NextFetchEvent;
   const post = () => new NextRequest("https://lalibakery.test/custom-cake", { method: "POST", headers: { "next-action": "abc" } });
   const passed = (res: Response) => res.headers.get("x-middleware-next") === "1";
@@ -37,20 +37,20 @@ describe("middleware", () => {
   it("lets everything through without Upstash", async () => {
     delete process.env.UPSTASH_REDIS_REST_URL;
     delete process.env.KV_REST_API_URL;
-    assert.ok(passed(await middleware(post(), event)));
+    assert.ok(passed(await proxy(post(), event)));
   });
 
   it("never asks Redis about a page view", async () => {
     process.env.UPSTASH_REDIS_REST_URL = "https://127.0.0.1:1";
     process.env.UPSTASH_REDIS_REST_TOKEN = "token";
     const started = Date.now();
-    assert.ok(passed(await middleware(new NextRequest("https://lalibakery.test/api/revalidate"), event)));
+    assert.ok(passed(await proxy(new NextRequest("https://lalibakery.test/api/revalidate"), event)));
     assert.ok(Date.now() - started < 100);
   });
 
   it("lets a request through when Redis can't be reached", async () => {
     process.env.UPSTASH_REDIS_REST_URL = "https://127.0.0.1:1";
     process.env.UPSTASH_REDIS_REST_TOKEN = "token";
-    assert.ok(passed(await middleware(post(), event)));
+    assert.ok(passed(await proxy(post(), event)));
   });
 });

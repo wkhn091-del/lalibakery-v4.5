@@ -73,9 +73,11 @@ async function previewPerspective(): Promise<ClientPerspective> {
 /**
  * A read-only GROQ query. `stega: false` for text that isn't shown on the page (the page title,
  * the description for Google): in the preview it's read without the invisible characters.
+ * `published: true` for what an order is priced and checked against: the published content even
+ * in the Studio's preview, so a draft price never reaches a real order.
  */
-export async function sanityFetch<T>(query: string, params: QueryParams = {}, options: { stega?: boolean } = {}): Promise<T> {
-  if (await isPreview()) {
+export async function sanityFetch<T>(query: string, params: QueryParams = {}, options: { stega?: boolean; published?: boolean } = {}): Promise<T> {
+  if (!options.published && (await isPreview())) {
     const token = process.env.SANITY_API_READ_TOKEN;
     if (!token) throw new Error("[sanity] the Studio's preview reads drafts, which takes SANITY_API_READ_TOKEN (a Viewer token). See CMS.md.");
     return client().fetch<T>(query, params, {
@@ -108,6 +110,16 @@ export async function whenCmsFails(error: unknown, what: string): Promise<void> 
     throw error;
   }
   console.error(`[sanity] ${what} couldn't be loaded, so the built-in content is shown.`, error);
+}
+
+/** A CMS read for a page; when it fails, whenCmsFails decides (null: the page's fallback) */
+export async function loadOrNull<T>(what: string, query: () => Promise<T>): Promise<T | null> {
+  try {
+    return await query();
+  } catch (error) {
+    await whenCmsFails(error, what);
+    return null;
+  }
 }
 
 /** Whether the CMS answers right now (never cached). The webhook checks this before refreshing. */

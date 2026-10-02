@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import Hero from "@/components/sections/Hero";
 import Pain from "@/components/sections/Pain";
 import Failed from "@/components/sections/Failed";
@@ -14,6 +15,9 @@ import SiteHeader from "@/components/SiteHeader";
 import JsonLd from "@/components/JsonLd";
 import { GALLERY } from "@/content";
 import { linksOf } from "@/lib/content/contact";
+import { DEFAULT_LOCALE } from "@/lib/i18n/config";
+import { messages } from "@/lib/i18n/messages";
+import { routeLocale } from "@/lib/i18n/route";
 import { getHome, getSettings } from "@/sanity/content";
 import { getGallery } from "@/sanity/data";
 
@@ -23,15 +27,24 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 // או לכל המאוחר אחרי שעה אם ההודעה על השינוי לא הגיעה.
 export const revalidate = 3600;
 
-export default async function Page() {
+export default async function Page({ params }: PageProps<"/[locale]">) {
+  // הטקסטים של הדף הזה עוד בעברית בלבד: בשפה אחרת, הכתובת העברית
+  if ((await routeLocale(params)) !== DEFAULT_LOCALE) redirect("/");
   // הטקסטים ("הגדרות כלליות", "דף הבית") והעוגות בגלריה, מה-CMS.
   // כשה-CMS לא מוגדר או לא זמין: מה שכתוב ב-content.ts
   const [settings, home, gallery] = await Promise.all([getSettings(), getHome(), getGallery()]);
   const business = settings.business;
   const links = linksOf(business);
+  const { nav } = messages(DEFAULT_LOCALE);
   return (
     <>
-      <SiteHeader header={settings.header} name={business.name} phone={business.phone} tel={links.tel} />
+      <SiteHeader
+        header={settings.header}
+        name={business.name}
+        phone={business.phone}
+        tel={links.tel}
+        cart={{ href: "/cart", label: nav.cart, labelWithCount: nav.cartWithCount }}
+      />
       <main id="main" tabIndex={-1}>
         <Hero c={home.hero} wordmark={business.wordmark} logoAlt={business.logoAlt} />
         <Pain c={home.pain} />

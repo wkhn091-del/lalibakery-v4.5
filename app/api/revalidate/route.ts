@@ -5,7 +5,7 @@ import { SANITY_TAG, sanityIsReachable } from "@/sanity/fetch";
 
 /*
   Sanity calls this when the owner publishes, changes or deletes a text document ("הגדרות כלליות",
-  "דף הבית", "דף הזמנת עוגה"), a cake, a category, a flavour or a cream (the GROQ webhook in
+  "דף הבית", "דף הזמנת עוגה"), a cake, a category, a flavour, a cream or a filling (the GROQ webhook in
   CMS.md). Drafts never call it: the Studio's preview reads them live (app/api/draft-mode). The request is signed with SANITY_REVALIDATE_SECRET; anything
   unsigned or signed with another secret gets 401 and changes nothing.
 
@@ -15,7 +15,10 @@ import { SANITY_TAG, sanityIsReachable } from "@/sanity/fetch";
 
 // Sanity's payload is a few hundred bytes (the webhook's projection is {_id, _type})
 const MAX_BODY_BYTES = 64 * 1024;
-/** the pages built from the CMS, rebuilt right after a change (below) */
+/**
+ * the pages built from the CMS, rebuilt right after a change (below). The catalog is rendered per
+ * visit from the refreshed data; a product's page rebuilds on its next visit.
+ */
 const PAGES = ["/", "/custom-cake", "/accessibility"];
 /** the refresh is recorded as this response ends; the rebuild starts a moment after */
 const REBUILD_AFTER_MS = 1500;
@@ -50,7 +53,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "CMS unreachable, retry later" }, { status: 503, headers: { "Retry-After": "60" } });
   }
 
-  revalidateTag(SANITY_TAG);
+  // "max": until the rebuild below finishes, visitors keep getting the current page, never an error
+  revalidateTag(SANITY_TAG, "max");
   // Rebuild the pages now, while the CMS is known to answer, rather than on the next visit: the
   // next visitor gets the new page at once, and a CMS outage in the meantime can't leave a page
   // with no version to show (a failed rebuild keeps the previous page; see whenCmsFails).

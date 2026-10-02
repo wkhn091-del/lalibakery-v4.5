@@ -10,7 +10,7 @@
   (restoring a saved wizard), and the classic build would add about 27 kB to the cake page.
 */
 import * as z from "zod/mini";
-import type { Draft } from "./model";
+import { type Draft, MAX_ADDONS } from "./model";
 
 // Hebrew-safe text: NFC; no control, bidi-override or zero-width characters (they can reorder or
 // hide what the owner reads in WhatsApp); trimmed; capped. Line breaks stay (the notes field).
@@ -30,15 +30,26 @@ const Exclusion = z.enum(["no-nuts", "no-dairy", "no-gluten", "no-eggs", "no-col
 /** YYYY-MM-DD, or empty: the date is optional in the wizard */
 const DateOrEmpty = z.union([z.iso.date(), z.literal("")]);
 
+/** an add-on as chosen; whether it fits the add-on (option, colour, text, count) is checked against the catalog */
+const AddonPick = z.object({
+  key: ref,
+  option: z.nullable(ref),
+  color: z.nullable(ref),
+  text: text(200),
+  qty: z.nullable(z.int().check(z.gte(1), z.lte(100))),
+});
+
 export const DraftSchema = z.object({
   category: z.nullable(Category),
   figure: z.string().check(z.maxLength(3)),
   size: z.nullable(ref),
   base: z.nullable(ref),
   cream: z.nullable(ref),
+  filling: z.nullable(ref),
   colors: z.array(ref).check(z.maxLength(3)),
   theme: text(60),
   message: text(40),
+  addons: z.array(AddonPick).check(z.maxLength(MAX_ADDONS)),
   exclusions: z.array(Exclusion).check(z.maxLength(6)),
   allergy: z.boolean(),
   notes: text(400),

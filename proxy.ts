@@ -1,11 +1,11 @@
 /*
-  A cheap first check at the edge: requests that change something (Server Actions on
-  /custom-cake, and our own API routes) are limited per client, 30 a minute, before any function
-  runs. Page views never reach Redis: the matcher only runs this for Server Action calls on the
-  cake page, and GET requests pass straight through.
+  A cheap first check before any page or route runs: requests that change something (Server
+  Actions on the cake builder, the cart and the checkout, and our own API routes) are limited per client, 30 a minute. Page views
+  never reach Redis: the matcher only runs this for Server Action calls on the cake page, and GET
+  requests pass straight through.
 
   Left out: the two signed callbacks (the SMS hook and the QStash reminder), which have limits of
-  their own, and Sentry's /monitoring tunnel, which Sentry 11 no longer exempts from middleware.
+  their own, and Sentry's /monitoring tunnel, which Sentry 11 no longer exempts from the proxy.
 
   Without Upstash (development, or a deploy without the variables) everything passes, as it does
   when Redis is slow (after 500 ms) or failing: this layer is a filter, and the limits that guard
@@ -32,7 +32,7 @@ function limiter(): Ratelimit | null {
 
 const READS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-export async function middleware(req: NextRequest, event: NextFetchEvent) {
+export async function proxy(req: NextRequest, event: NextFetchEvent) {
   if (READS.has(req.method)) return NextResponse.next();
   const perIp = limiter();
   if (!perIp) return NextResponse.next();
@@ -50,8 +50,8 @@ export async function middleware(req: NextRequest, event: NextFetchEvent) {
 
 export const config = {
   matcher: [
-    // Server Actions post to the page itself, with a Next-Action header
-    { source: "/custom-cake", has: [{ type: "header", key: "next-action" }] },
+    // Server Actions post to the page itself (Hebrew without a prefix), with a Next-Action header
+    { source: "/:locale(en|ru)?/:page(custom-cake|cart|checkout)", has: [{ type: "header", key: "next-action" }] },
     // our API routes, except the SMS hook (/api/hooks/*) and the QStash reminder (/api/cart/remind)
     "/api/((?!hooks/|cart/remind).*)",
   ],

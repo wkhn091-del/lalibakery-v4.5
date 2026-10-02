@@ -115,15 +115,28 @@ export type WizardText = {
   base: string;
   perFigure: string;
   totalFor: string;
+  /** under the size and base step's heading: the cake starts from the classics */
+  startNote: string;
   cream: string;
   creamTags: { dairy: string; parve: string; nuts: string; gluten: string };
   notFor: string;
+  filling: string;
+  fillingHint: string;
+  noFilling: string;
+  /** the tabs over a long list of bases, creams and fillings */
+  groups: { all: string; classic: string; chocolate: string; fruity: string; nutty: string; sweets: string; special: string };
   colors: string;
   colorsHint: string;
   optional: string;
   ideaPlaceholder: string;
   messagePlaceholder: string;
   messagePreview: string;
+  addons: string;
+  addonsHint: string;
+  addonColor: string;
+  addonAnyColor: string;
+  addonText: string;
+  addonQty: string;
   exclusionsLegend: string;
   nutsPreset: string;
   allergy: string;
@@ -144,6 +157,29 @@ export type WizardText = {
   failed: string;
   added: string;
   another: string;
+  /** the live 3D picture of the cake being built (components/builder3d) */
+  preview: { label: string; hint: string; note: string };
+  /** sending the cake as a request saved for the owner (when the shop's database is set up) */
+  request: {
+    title: string;
+    note: string;
+    name: string;
+    phone: string;
+    email: string;
+    dateAny: string;
+    few: string;
+    full: string;
+    robot: string;
+    send: string;
+    sending: string;
+    orWhatsapp: string;
+    sent: string;
+    /** {code}: the request's number */
+    sentNote: string;
+    sentImage: string;
+    sentWhatsapp: string;
+    errors: { fields: string; name: string; phone: string; email: string; robot: string; busy: string; date: string; dateFull: string; tooMany: string; error: string };
+  };
   errors: { category: string; figure: string; size: string; base: string; cream: string };
   /** the summary, the WhatsApp message, the colour and removal names (lib/order/model.ts) */
   order: OrderWords;

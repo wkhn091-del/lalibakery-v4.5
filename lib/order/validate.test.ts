@@ -42,9 +42,31 @@ describe("validateOrder", () => {
     const unknown = validateOrder({ ...good, cream: "gold-leaf-deluxe" }, cat, TODAY);
     assert.equal(unknown.ok, false);
     if (!unknown.ok) assert.ok(unknown.fields.cream);
-    const notOffered = validateOrder({ ...good, category: "number", figure: "5", size: "regular", base: "sable-vanilla", cream: "lotus" }, cat, TODAY);
+    const notOffered = validateOrder({ ...good, category: "number", figure: "5", size: "regular", base: "sable-vanilla", cream: "whipped" }, cat, TODAY);
     assert.equal(notOffered.ok, false);
     if (!notOffered.ok) assert.ok(notOffered.fields.cream);
+  });
+
+  it("takes an optional filling, only one the cake offers", () => {
+    const none = validateOrder(good, cat, TODAY);
+    assert.ok(none.ok && !none.order.filling);
+    const jam = validateOrder({ ...good, filling: "strawberry-jam" }, cat, TODAY);
+    assert.ok(jam.ok);
+    if (jam.ok) {
+      assert.equal(jam.order.filling?.label, "ריבת תות");
+      assert.match(jam.order.summary, /מילוי: ריבת תות/);
+    }
+    const notOffered = validateOrder({ ...good, category: "kindergarten", size: "tray-s", filling: "coffee-soak" }, cat, TODAY);
+    assert.ok(!notOffered.ok && notOffered.fields.filling);
+    const unknown = validateOrder({ ...good, filling: "x".repeat(81) }, cat, TODAY);
+    assert.ok(!unknown.ok && unknown.fields.filling);
+  });
+
+  it("blocks a base or a filling with nuts when nuts were excluded", () => {
+    const base = validateOrder({ ...good, base: "pistachio", exclusions: ["no-nuts"] }, cat, TODAY);
+    assert.ok(!base.ok && base.fields.base && !base.fields.cream);
+    const filling = validateOrder({ ...good, filling: "dubai", exclusions: ["no-nuts"] }, cat, TODAY);
+    assert.ok(!filling.ok && filling.fields.filling && !filling.fields.cream);
   });
 
   it("refuses a 5 KB inscription before doing any work on it", () => {
@@ -97,6 +119,49 @@ describe("validateOrder", () => {
   it("refuses anything that isn't an order", () => {
     for (const bad of [null, "order", 42, [], { ...good, category: "wedding" }, { ...good, size: null }, { ...good, allergy: "yes" }])
       assert.equal(validateOrder(bad, cat, TODAY).ok, false);
+  });
+
+  it("takes add-ons that fit, and writes them into the summary", () => {
+    const flowers = { key: "flowers", option: "o2", color: "blush", text: "", qty: null };
+    const macarons = { key: "macarons", option: null, color: null, text: "", qty: 6 };
+    const r = validateOrder({ ...good, addons: [flowers, macarons] }, cat, TODAY);
+    assert.equal(r.ok, true);
+    if (!r.ok) return;
+    assert.deepEqual(r.order.addons, [
+      { key: "flowers", title: "פרחים", option: "פרחי סוכר", color: "ורוד עתיק" },
+      { key: "macarons", title: "מקרונים", qty: 6 },
+    ]);
+    assert.match(r.order.summary, /תוספות: פרחים: פרחי סוכר, בצבע ורוד עתיק; מקרונים: 6 יחידות/);
+  });
+
+  it("refuses add-ons that don't fit the add-on or the cake", () => {
+    const pick = { option: null, color: null, text: "", qty: null };
+    const bad = [
+      { ...pick, key: "jetpack" },
+      { ...pick, key: "flowers" }, // an option is required
+      { ...pick, key: "flowers", option: "o9" },
+      { ...pick, key: "goldLeaf", color: "gold" }, // not colourable
+      { ...pick, key: "piping", color: "neon" },
+      { ...pick, key: "macarons", qty: 50 },
+      { ...pick, key: "macarons" }, // a count is required
+      { ...pick, key: "goldLeaf", qty: 2 },
+      { ...pick, key: "topper", text: "א".repeat(31) },
+      { ...pick, key: "goldLeaf", text: "x" },
+      { ...pick, key: "inscription", text: "x" }, // the message field, not an add-on
+    ];
+    for (const a of bad) assert.equal(validateOrder({ ...good, addons: [a] }, cat, TODAY).ok, false, JSON.stringify(a));
+    // macarons aren't offered on a kindergarten cake
+    const kinder = { ...good, category: "kindergarten", size: "tray-s", base: "vanilla", cream: "vanilla" };
+    assert.equal(validateOrder({ ...kinder, addons: [{ ...pick, key: "macarons", qty: 6 }] }, cat, TODAY).ok, false);
+    // the same add-on twice
+    const gold = { ...pick, key: "goldLeaf" };
+    assert.equal(validateOrder({ ...good, addons: [gold, gold] }, cat, TODAY).ok, false);
+  });
+
+  it("notes that an edible print's picture comes over WhatsApp", () => {
+    const r = validateOrder({ ...good, category: "birthday", size: "d22", addons: [{ key: "ediblePrint", option: null, color: null, text: "", qty: null }] }, cat, TODAY);
+    assert.equal(r.ok, true);
+    if (r.ok) assert.match(r.order.summary, /הדפס תמונה אכילה: התמונה תישלח בוואטסאפ/);
   });
 
   it("knows today's date in Israel", () => {

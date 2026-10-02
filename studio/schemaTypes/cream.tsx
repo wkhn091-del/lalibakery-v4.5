@@ -1,13 +1,7 @@
 import { DropIcon } from "@sanity/icons/Drop";
 import { defineField, defineType } from "sanity";
 import { Swatch } from "../components/ToneInput";
-import { toneField } from "./fields";
-
-const ALLERGENS = [
-  { title: "מוצרי חלב", value: "dairy" },
-  { title: "אגוזים או בוטנים", value: "nuts" },
-  { title: "גלוטן", value: "gluten" },
-];
+import { ALLERGENS, allergensField, tasteGroupField, toneField } from "./fields";
 
 /** A cream (filling and coating), offered by the cake types that list it */
 export const cream = defineType({
@@ -24,16 +18,8 @@ export const cream = defineType({
       validation: (rule) => rule.required().max(40),
     }),
     toneField,
-    defineField({
-      name: "contains",
-      title: "מה יש בקרם",
-      type: "array",
-      of: [{ type: "string" }],
-      options: { list: ALLERGENS, layout: "grid" },
-      description:
-        "חשוב, בגלל אלרגיות: לסמן כל מה שיש בקרם. בונה העוגה לא מאפשר לשלוח הזמנה עם קרם שמכיל משהו שהלקוח ביקש בלעדיו (למשל אגוזים).",
-      validation: (rule) => rule.unique(),
-    }),
+    tasteGroupField,
+    allergensField("קרם"),
     defineField({
       name: "parve",
       title: "יש גם גרסה פרווה",

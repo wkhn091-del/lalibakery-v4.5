@@ -2,7 +2,7 @@
   Fills a new dataset with the site's current content, once:
     - every text on the site: "הגדרות כלליות", "דף הבית", "דף הזמנת עוגה" (content.ts, as the
       Studio's forms lay them out: schemaTypes/site/spec.ts)
-    - the bases, the creams and the four cake types with their sizes (the cake builder's built-in catalog)
+    - the bases, the creams, the fillings and the four cake types with their sizes (the cake builder's built-in catalog)
     - the homepage gallery's cakes with their photos (content.ts and public/images)
   From then on the Studio is where it all lives, and the site reads it from there.
 
@@ -20,9 +20,12 @@ import { basename, resolve } from "node:path";
 import { LexoRank } from "lexorank";
 import { getCliClient } from "sanity/cli";
 import { CAKE_PAGE, GALLERY, HOME, SETTINGS } from "../../content";
+import { ADDONS, ADDON_SEEDS, addonId } from "../addons";
 import { categoryId, type CategoryKey } from "../categories";
+import { LEGAL_PAGES, legalId } from "../legal";
+import { STORE_SETTINGS_ID } from "../store";
 import { SITE_DOCS, stored } from "../schemaTypes/site/spec";
-import type { Tone } from "../tones";
+import { BUILT_IN_CATALOG } from "../../lib/order/model";
 
 const DRY_RUN = process.argv.includes("--dry-run");
 const STUDIO_DIR = process.env.SANITY_BASE_PATH || process.cwd();
@@ -31,53 +34,17 @@ const PUBLIC_DIR = resolve(STUDIO_DIR, "..", "public");
 type Doc = { _id: string; _type: string } & Record<string, unknown>;
 type Upload = { file: string; alt: string };
 
-/* ───────── the palette (studio/tones.ts) ───────── */
+/* ───────── bases, creams and fillings: the builder's own built-in catalog (lib/order/model.ts) ───────── */
 
-const T = {
-  vanilla: "#EFD9A8",
-  cream: "#F5E9CF",
-  white: "#FBF5EA",
-  chocolate: "#5C3B2C",
-  darkChocolate: "#3F2519",
-  caramel: "#C68A4C",
-  red: "#9A2E36",
-  lemon: "#F0DC86",
-  pistachio: "#B5BF86",
-  berries: "#B45872",
-  biscuit: "#C48A57",
-  sable: "#E4C28C",
-  marble: "#EFD9A8,#5C3B2C",
-} as const satisfies Record<string, Tone>;
-
-/* ───────── bases and creams ───────── */
-
-const FLAVOURS: [key: string, name: string, note: string, tone: Tone][] = [
-  ["vanilla", "וניל", "ספוג וניל רך ואוורירי", T.vanilla],
-  ["chocolate", "שוקולד", "ספוג שוקולד עשיר", T.chocolate],
-  ["red-velvet", "רד וולווט", "ספוג קטיפתי בגוון אדום עמוק", T.red],
-  ["lemon", "לימון", "ספוג לימון רענן", T.lemon],
-  ["marble", "שיש", "וניל ושוקולד, מעורבלים", T.marble],
-  ["fudge", "פאדג' שוקולד", "שוקולד דחוס ולח", T.darkChocolate],
-  ["sable-vanilla", "בצק פריך וניל", "שתי שכבות פריכות בצורת הספרה", T.sable],
-  ["sable-chocolate", "בצק פריך שוקולד", "פריך, עם קקאו", T.chocolate],
-  ["sponge-vanilla", "ספוג וניל", "גרסה רכה של עוגת המספרים", T.vanilla],
-];
-
-type Allergen = "dairy" | "nuts" | "gluten";
-const CREAMS: [key: string, name: string, tone: Tone, contains: Allergen[], parve: boolean][] = [
-  ["vanilla", "וניל", T.cream, ["dairy"], true],
-  ["chocolate", "גנאש שוקולד", T.chocolate, ["dairy"], true],
-  ["cream-cheese", "קרם גבינה", T.white, ["dairy"], false],
-  ["mascarpone", "מסקרפונה", T.cream, ["dairy"], false],
-  ["white-chocolate", "שוקולד לבן", T.cream, ["dairy"], false],
-  ["salted-caramel", "קרמל מלוח", T.caramel, ["dairy"], false],
-  ["pistachio", "פיסטוק", T.pistachio, ["dairy", "nuts"], false],
-  ["berries", "פירות יער", T.berries, ["dairy"], true],
-  ["lotus", "לוטוס", T.biscuit, ["dairy", "gluten"], false],
-];
+const toneValue = (tone: string | [string, string]) => (Array.isArray(tone) ? tone.join(",") : tone);
+const BUILT_IN_CATEGORY = new Map(BUILT_IN_CATALOG.categories.map((c) => [c.id, c]));
+const FLAVOURS = [...new Map(BUILT_IN_CATALOG.categories.flatMap((c) => c.bases.map((b) => [b.id, b] as const))).values()];
+const CREAMS = BUILT_IN_CATALOG.creams;
+const FILLINGS = BUILT_IN_CATALOG.fillings ?? [];
 
 const flavourId = (key: string) => `flavour-${key}`;
 const creamId = (key: string) => `cream-${key}`;
+const fillingId = (key: string) => `filling-${key}`;
 const refs = (ids: string[]) => ids.map((id) => ({ _key: id, _type: "reference", _ref: id }));
 
 /* ───────── the four cake types ───────── */
@@ -97,8 +64,6 @@ type CategorySeed = {
   blurb: string;
   image?: Upload;
   sizes: SizeSeed[];
-  bases: string[];
-  creams: string[];
 };
 
 const CATEGORY_SEEDS: CategorySeed[] = [
@@ -110,8 +75,6 @@ const CATEGORY_SEEDS: CategorySeed[] = [
       { key: "regular", label: "גודל רגיל", detail: "כ-30 ס״מ לכל ספרה", servings: [12, 15] },
       { key: "large", label: "גודל גדול", detail: "כ-40 ס״מ לכל ספרה", servings: [20, 25] },
     ],
-    bases: ["sable-vanilla", "sable-chocolate", "sponge-vanilla"],
-    creams: ["cream-cheese", "mascarpone", "white-chocolate", "chocolate", "pistachio"],
   },
   {
     key: "designer",
@@ -124,8 +87,6 @@ const CATEGORY_SEEDS: CategorySeed[] = [
       { key: "d24", label: "קוטר 24 ס״מ", servings: [22, 28], shape: "round", diameter: 24 },
       { key: "tiers", label: "שתי קומות", detail: "16 ו-24 ס״מ", servings: [35, 45], shape: "tiers" },
     ],
-    bases: ["vanilla", "chocolate", "red-velvet", "lemon", "marble"],
-    creams: ["vanilla", "chocolate", "salted-caramel", "pistachio", "berries", "cream-cheese", "lotus"],
   },
   {
     key: "birthday",
@@ -137,8 +98,6 @@ const CATEGORY_SEEDS: CategorySeed[] = [
       { key: "d22", label: "קוטר 22 ס״מ", servings: [16, 20], shape: "round", diameter: 22 },
       { key: "d26", label: "קוטר 26 ס״מ", servings: [25, 30], shape: "round", diameter: 26 },
     ],
-    bases: ["vanilla", "chocolate", "marble", "fudge"],
-    creams: ["vanilla", "chocolate", "salted-caramel", "berries", "lotus", "cream-cheese"],
   },
   {
     key: "kindergarten",
@@ -149,8 +108,6 @@ const CATEGORY_SEEDS: CategorySeed[] = [
       { key: "tray-l", label: "מגש 30 על 40 ס״מ", servings: [35, 40], shape: "tray", tray: [30, 40] },
       { key: "cupcakes", label: "30 קאפקייקס", detail: "לכל ילד אחד משלו", servings: [30, 30], shape: "cupcakes" },
     ],
-    bases: ["vanilla", "chocolate", "marble"],
-    creams: ["vanilla", "chocolate", "berries"],
   },
 ];
 
@@ -177,6 +134,56 @@ function splitCaption(caption: string) {
 
 const BUILT_IN: Record<string, unknown> = { siteSettings: SETTINGS, homePage: HOME, cakePage: CAKE_PAGE };
 
+/* ───────── the shop ───────── */
+
+const he = (text: string) => ({ he: text });
+
+// From the client's questionnaire: Netanya ₪20 (free over ₪100), the towns around it ₪50. Delivery
+// windows and the opening days aren't known yet: the owner fills them in before launch.
+const STORE_SETTINGS: Doc = {
+  _id: STORE_SETTINGS_ID,
+  _type: "storeSettings",
+  dailyCapacity: 5,
+  leadBusinessDays: 3,
+  maxAdvanceDays: 90,
+  pickupEnabled: true,
+  pickupNote: he("האיסוף מתואם בוואטסאפ, והכתובת נשלחת אחרי ההזמנה."),
+  deliveryZones: [
+    { _key: "netanya", _type: "deliveryZone", name: he("נתניה"), fee: 20, freeAbove: 100, cities: ["נתניה"] },
+    {
+      _key: "netanya-area",
+      _type: "deliveryZone",
+      name: he("סביבת נתניה"),
+      fee: 50,
+      cities: ["אבן יהודה", "כפר יונה", "קדימה-צורן", "פרדסיה", "תל מונד", "אביחיל", "בית יצחק", "כפר נטר", "אודים", "פולג"],
+    },
+  ],
+  launchPromo: { enabled: false },
+  catalogCancellationDays: 3,
+};
+
+function shopDocs(): Doc[] {
+  const addons = ADDONS.map(({ key, title }): Doc => {
+    const s = ADDON_SEEDS[key];
+    return {
+      _id: addonId(key),
+      _type: "builderAddon",
+      title: he(title),
+      description: he(s.description),
+      available: true,
+      categories: s.categories,
+      ...(s.options ? { options: s.options.map((label, i) => ({ _key: `o${i + 1}`, _type: "addonOption", label: he(label) })) } : {}),
+      colorable: !!s.colorable,
+      ...(s.text ? { textMax: s.text } : {}),
+      ...(s.quantity ? { quantity: { min: s.quantity[0], max: s.quantity[1] } } : {}),
+      imageByWhatsapp: !!s.imageByWhatsapp,
+    };
+  });
+  // the legal pages start with their titles only: their text is written before launch
+  const legal = LEGAL_PAGES.map(({ key, title }): Doc => ({ _id: legalId(key), _type: "legalPage", title: he(title) }));
+  return [STORE_SETTINGS, ...addons, ...legal];
+}
+
 /* ───────── building the documents ───────── */
 
 type Planned = { doc: Doc; image?: Upload & { field: string } };
@@ -184,10 +191,15 @@ type Planned = { doc: Doc; image?: Upload & { field: string } };
 function plan(): Planned[] {
   const out: Planned[] = [];
   for (const spec of SITE_DOCS) out.push({ doc: { _id: spec.id, _type: spec.name, ...stored(spec, BUILT_IN[spec.name]) } });
-  for (const [key, name, note, tone] of FLAVOURS) out.push({ doc: { _id: flavourId(key), _type: "flavour", name, note, tone } });
-  for (const [key, name, tone, contains, parve] of CREAMS) out.push({ doc: { _id: creamId(key), _type: "cream", name, tone, contains, parve } });
+  for (const b of FLAVOURS)
+    out.push({ doc: { _id: flavourId(b.id), _type: "flavour", name: b.label, note: b.note, tone: toneValue(b.tone), ...(b.group ? { group: b.group } : {}), ...(b.contains ? { contains: b.contains } : {}) } });
+  for (const [list, type, id] of [[CREAMS, "cream", creamId], [FILLINGS, "filling", fillingId]] as const)
+    for (const c of list)
+      out.push({ doc: { _id: id(c.id), _type: type, name: c.label, tone: toneValue(c.tone), contains: c.contains, parve: !!c.parve, ...(c.group ? { group: c.group } : {}) } });
+  for (const doc of shopDocs()) out.push({ doc });
 
   for (const c of CATEGORY_SEEDS) {
+    const builtIn = BUILT_IN_CATEGORY.get(c.key)!;
     const sizes = c.sizes.map((s) => ({
       _key: s.key,
       _type: "cakeSize",
@@ -206,8 +218,9 @@ function plan(): Planned[] {
         title: c.title,
         blurb: c.blurb,
         sizes,
-        bases: refs(c.bases.map(flavourId)),
-        creams: refs(c.creams.map(creamId)),
+        bases: refs(builtIn.bases.map((b) => flavourId(b.id))),
+        creams: refs(builtIn.creams.map(creamId)),
+        ...(builtIn.fillings?.length ? { fillings: refs(builtIn.fillings.map(fillingId)) } : {}),
       },
       image: c.image && { ...c.image, field: "image" },
     });

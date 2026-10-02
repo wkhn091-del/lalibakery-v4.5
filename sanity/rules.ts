@@ -14,7 +14,7 @@ const link = (v: unknown) => /^https:\/\/\S+$/.test(text(v));
 /** the 3D cake's font: the Hebrew alphabet and the space; past 12 letters they wrap round the back */
 export const INSCRIPTION = /^[א-ת ]{1,12}$/;
 /** where a menu item may lead: the homepage's sections and the site's pages */
-export const NAV_TARGETS = ["#proof", "#mechanism", "#faq", "#closing", "#contact", "#top", "/custom-cake", "/accessibility", "/"];
+export const NAV_TARGETS = ["#proof", "#mechanism", "#faq", "#closing", "#contact", "#top", "/custom-cake", "/products", "/accessibility", "/"];
 
 export const SETTINGS_RULES: Rules = {
   optional: [

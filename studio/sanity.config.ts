@@ -15,14 +15,18 @@ import { structure } from "./structure";
   people invited to the project can sign in. Setup and security: ../CMS.md
 */
 
-// the documents that always exist, one of each (the four cake types, the three text documents):
-// edit and publish, never delete, duplicate or unpublish
+// the documents that always exist, one of each (the four cake types, the ten add-ons, the legal
+// pages, the three text documents, the shop's settings): edit and publish, never delete,
+// duplicate or unpublish
 const FIXED_ACTIONS = new Set(["publish", "discardChanges", "restore"]);
 const KEPT_TYPES = new Set([...FIXED_TYPES, ...SINGLETON_TYPES]);
 
-// the site the Studio shows, with the drafts (its /api/draft-mode/enable checks the Studio's secret).
-// In development the local site; for the hosted Studio, studio/.env.production (CMS.md, step 2).
-const previewUrl = process.env.SANITY_STUDIO_PREVIEW_URL?.trim() || "http://localhost:3000";
+/** The live site, on Vercel. When it moves (a custom domain), change it here, or set
+ *  SANITY_STUDIO_PREVIEW_URL in studio/.env.production and deploy the Studio again. */
+const LIVE_SITE = "https://lalibakery-v4-5-h226.vercel.app";
+// The site "עריכה על האתר" shows, with the drafts (its /api/draft-mode/enable checks the Studio's
+// secret): the local site under `npm run dev`, the live site in the hosted Studio (`npm run deploy`).
+const previewUrl = process.env.SANITY_STUDIO_PREVIEW_URL?.trim() || (isDev ? "http://localhost:3000" : LIVE_SITE);
 // the site with and without www: a domain that redirects from one to the other still connects
 const previewOrigins = (() => {
   try {
@@ -35,6 +39,7 @@ const previewOrigins = (() => {
   }
 })();
 const ORDER_PAGE = [{ title: "דף הזמנת עוגה", href: "/custom-cake" }];
+const SHOP_PAGE = { title: "החנות", href: "/products" };
 
 // From studio/.env (read once, when `npm run dev` starts). Without them Sanity only says "Client is
 // missing projectId", so say what to do instead.
@@ -67,6 +72,7 @@ export default defineConfig({
           { route: "/", filter: `_id == "homePage"` },
           { route: "/custom-cake", filter: `_id == "cakePage"` },
           { route: "/accessibility", filter: `_id == "siteSettings"` },
+          { route: "/products/:slug", filter: `_type == "product" && slug.current == $slug` },
         ]),
         // "used on these pages", on top of each document
         locations: {
@@ -75,6 +81,19 @@ export default defineConfig({
           category: defineLocations({ locations: ORDER_PAGE }),
           flavour: defineLocations({ locations: ORDER_PAGE }),
           cream: defineLocations({ locations: ORDER_PAGE }),
+          filling: defineLocations({ locations: ORDER_PAGE }),
+          product: defineLocations({
+            select: { title: "title.he", slug: "slug.current" },
+            resolve: (doc) => ({
+              locations: [
+                ...(doc?.slug ? [{ title: doc.title || "המוצר", href: `/products/${doc.slug}` }] : []),
+                SHOP_PAGE,
+              ],
+            }),
+          }),
+          shopCategory: defineLocations({ locations: [SHOP_PAGE] }),
+          occasion: defineLocations({ locations: [SHOP_PAGE] }),
+          style: defineLocations({ locations: [SHOP_PAGE] }),
         },
       },
     }),
@@ -85,7 +104,7 @@ export default defineConfig({
 
   schema: {
     types: schemaTypes,
-    // no "create new" for the fixed cake types or the text documents, anywhere in the Studio
+    // no "create new" for the fixed documents, anywhere in the Studio
     templates: (templates) => templates.filter(({ schemaType }) => !KEPT_TYPES.has(schemaType)),
   },
 

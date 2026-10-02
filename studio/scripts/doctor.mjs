@@ -160,17 +160,31 @@ if (siteEnv.NEXT_PUBLIC_SANITY_DATASET && siteEnv.NEXT_PUBLIC_SANITY_DATASET !==
 
 // the Presentation view ("edit on the site"): the site it shows, and the token that site needs to read drafts
 const deployEnv = Object.assign({}, ...[".env", ".env.local", ".env.production", ".env.production.local"].map((f) => readEnvFile(join(STUDIO, f))));
-for (const [when, value] of [["npm run dev", env.SANITY_STUDIO_PREVIEW_URL], ["npm run deploy", deployEnv.SANITY_STUDIO_PREVIEW_URL]]) {
-  const url = value || "http://localhost:3000";
-  if (!/^https?:\/\/[^/\s]+/.test(url))
-    report("fail", `SANITY_STUDIO_PREVIEW_URL="${url}" isn't a web address`, null,
-      ["http://localhost:3000 while developing; the real site (https://…) in studio/.env.production"]);
-  else if (when === "npm run deploy" && /localhost|127\.0\.0\.1/.test(url))
-    report("info", `After ${when}, edit on the site would show ${url}`,
+// without SANITY_STUDIO_PREVIEW_URL: the local site in development, LIVE_SITE (sanity.config.ts) once deployed
+for (const [when, value, fallback] of [
+  ["npm run dev", env.SANITY_STUDIO_PREVIEW_URL, "http://localhost:3000"],
+  ["npm run deploy", deployEnv.SANITY_STUDIO_PREVIEW_URL, "the live site (LIVE_SITE in sanity.config.ts)"],
+]) {
+  if (!value) report("ok", `${when}: edit on the site shows ${fallback}`);
+  else if (!/^https?:\/\/[^/\s]+/.test(value))
+    report("fail", `SANITY_STUDIO_PREVIEW_URL="${value}" isn't a web address`, null,
+      ["the site's address, e.g. https://www.lalibakery.co.il, or remove the line to use the default"]);
+  else if (when === "npm run deploy" && /localhost|127\.0\.0\.1/.test(value))
+    report("warn", `After ${when}, edit on the site would show ${value}`,
       "The hosted Studio would look for the site on the computer of whoever opens it.",
-      ["cp .env.production.example .env.production, and put the real site's address in it (exactly as the browser shows it, www or not)"]);
-  else report("ok", `${when}: edit on the site shows ${url}${value ? "" : " (the default)"}`);
+      ["remove SANITY_STUDIO_PREVIEW_URL from studio/.env.production (the default is the live site), or put the live site's address there"]);
+  else report("ok", `${when}: edit on the site shows ${value}`);
 }
+
+// the hosted Studio's own address: https://<name>.sanity.studio, where SANITY_STUDIO_HOSTNAME is <name>
+const hostname = (deployEnv.SANITY_STUDIO_HOSTNAME ?? "").trim();
+const hostName = hostname.toLowerCase().replace(/^https?:\/\//, "").replace(/\.sanity\.studio\/?$/, "");
+if (!hostname) report("info", "SANITY_STUDIO_HOSTNAME is empty: the first `npm run deploy` asks for the Studio's name");
+else if (!/^[a-z][a-z0-9-]*[a-z0-9]$/.test(hostName))
+  report("fail", `SANITY_STUDIO_HOSTNAME="${hostname}" isn't a Studio name`,
+    "It's only the <name> in https://<name>.sanity.studio. A web address like http://localhost:3000 is the site, which goes in SANITY_STUDIO_PREVIEW_URL (studio/.env.production).",
+    ["in studio/.env: SANITY_STUDIO_HOSTNAME=lalibakery (lowercase English letters, digits and dashes)"]);
+else report("ok", `The hosted Studio: https://${hostName}.sanity.studio`);
 if (existsSync(join(SITE, ".env.local")) && !siteEnv.SANITY_API_READ_TOKEN)
   report("warn", "The site's .env.local has no SANITY_API_READ_TOKEN",
     "The site works, but edit on the site can't show drafts without a Viewer token.",

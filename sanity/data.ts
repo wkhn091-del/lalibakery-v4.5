@@ -1,11 +1,11 @@
 import "server-only";
 import type { ProofItem } from "@/components/sections/Proof";
-import type { Category, CategoryId, Cream, Flavour, Size, SizeVisual, WizardCatalog } from "@/lib/order/model";
+import { type Category, type CategoryId, type Cream, type Filling, type Flavour, type Size, type SizeVisual, TASTE_GROUPS, type TasteGroup, type TileImage, type WizardCatalog } from "@/lib/order/model";
 import { priceText } from "@/lib/price";
 import { clean, splitStega } from "@/lib/stega";
 import { getSettings } from "./content";
 import { isSanityConfigured } from "./env";
-import { sanityFetch, whenCmsFails } from "./fetch";
+import { loadOrNull, sanityFetch } from "./fetch";
 import { type CmsImage, cmsImage } from "./image";
 import { catalogQuery, galleryQuery } from "./queries";
 import { toneHex } from "./tones";
@@ -44,19 +44,9 @@ function captionOf(name: string, description: string | undefined, price: number 
   return [tidy(name), tidy(description), price != null ? priceText(price, priceFrom) : undefined].filter(Boolean).join(". ");
 }
 
-/** A CMS query for a page; when it fails, whenCmsFails decides (null: the built-in content) */
-async function load<T>(what: string, query: () => Promise<T>): Promise<T | null> {
-  try {
-    return await query();
-  } catch (error) {
-    await whenCmsFails(error, what);
-    return null;
-  }
-}
-
 export async function getGallery(): Promise<ProofItem[] | null> {
   if (!isSanityConfigured) return null;
-  const [docs, settings] = await Promise.all([load("the gallery", () => sanityFetch<GalleryDoc[]>(galleryQuery)), getSettings()]);
+  const [docs, settings] = await Promise.all([loadOrNull("the gallery", () => sanityFetch<GalleryDoc[]>(galleryQuery)), getSettings()]);
   if (!docs) return null;
   const priceFrom = clean(settings.priceFrom);
   const items = docs.flatMap((doc): ProofItem[] => {
@@ -103,10 +93,13 @@ type CategoryDoc = {
   title?: string;
   blurb?: string;
   image?: CmsImage;
+  gallery?: (CmsImage | null)[] | null;
   sizes?: SizeDoc[] | null;
-  bases?: ({ _id: string; name?: string; note?: string; tone?: string } | null)[] | null;
-  creams?: ({ _id: string; name?: string; tone?: string; contains?: string[]; parve?: boolean } | null)[] | null;
+  bases?: ({ _id: string; name?: string; note?: string; tone?: string; group?: string; contains?: string[] } | null)[] | null;
+  creams?: (TasteDoc | null)[] | null;
+  fillings?: (TasteDoc | null)[] | null;
 };
+type TasteDoc = { _id: string; name?: string; tone?: string; group?: string; contains?: string[]; parve?: boolean };
 
 // the builder's four cake types, in the builder's order (its tile grid is laid out for this order)
 const KEYS = ["number", "designer", "birthday", "kindergarten"] as const satisfies readonly CategoryId[];
@@ -115,6 +108,31 @@ const idOf = (key: CategoryId) => `category-${key}`;
 const ALLERGENS = ["dairy", "nuts", "gluten"] as const;
 type Allergen = (typeof ALLERGENS)[number];
 const isAllergen = (value: string): value is Allergen => (ALLERGENS as readonly string[]).includes(value);
+const groupOf = (value: string | undefined): TasteGroup | undefined => {
+  const group = clean(value ?? "");
+  return (TASTE_GROUPS as readonly string[]).includes(group) ? (group as TasteGroup) : undefined;
+};
+
+/** A cream or a filling, read once however many cake types list it; deleted or unpublished ones come back empty */
+function tastesOf(docs: (TasteDoc | null)[] | null | undefined, seen: Map<string, Cream>): string[] {
+  return (docs ?? []).flatMap((c) => {
+    if (!c?.name) return [];
+    if (!seen.has(c._id)) {
+      const contains = clean(c.contains ?? []).filter(isAllergen);
+      const group = groupOf(c.group);
+      // "a parve version" only means something with dairy in it (the Studio hides it otherwise)
+      seen.set(c._id, {
+        id: c._id,
+        label: c.name,
+        tone: toneHex(clean(c.tone)),
+        contains,
+        ...(contains.includes("dairy") && c.parve ? { parve: true } : {}),
+        ...(group ? { group } : {}),
+      });
+    }
+    return [c._id];
+  });
+}
 
 const clamp = (min: number, max: number, value: number) => Math.min(max, Math.max(min, value));
 
@@ -137,7 +155,7 @@ function visualOf(category: CategoryId, size: SizeDoc, index: number, count: num
 }
 
 /** One cake type as the builder shows it, or the reason it can't be shown yet */
-function categoryOf(key: CategoryId, doc: CategoryDoc | undefined, creams: Map<string, Cream>): Category | string {
+function categoryOf(key: CategoryId, doc: CategoryDoc | undefined, creams: Map<string, Cream>, fillings: Map<string, Filling>): Category | string {
   if (!doc) return "not published yet";
   if (!doc.title) return "has no name";
   const complete = (doc.sizes ?? []).filter((s) => s.label && (s.servingsMin ?? 0) > 0);
@@ -154,29 +172,34 @@ function categoryOf(key: CategoryId, doc: CategoryDoc | undefined, creams: Map<s
     }),
   );
   // references to bases or creams that were deleted or never published come back empty: skipped
-  const bases = (doc.bases ?? []).flatMap((b): Flavour[] => (b?.name ? [{ id: b._id, label: b.name, note: b.note ?? "", tone: toneHex(clean(b.tone)) }] : []));
-  const creamIds = (doc.creams ?? []).flatMap((c) => {
-    if (!c?.name) return [];
-    if (!creams.has(c._id)) {
-      const contains = clean(c.contains ?? []).filter(isAllergen);
-      // "a parve version" only means something for a cream with dairy (the Studio hides it otherwise)
-      creams.set(c._id, { id: c._id, label: c.name, tone: toneHex(clean(c.tone)), contains, parve: (contains.includes("dairy") && c.parve) || undefined });
-    }
-    return [c._id];
+  const bases = (doc.bases ?? []).flatMap((b): Flavour[] => {
+    if (!b?.name) return [];
+    const group = groupOf(b.group);
+    const contains = clean(b.contains ?? []).filter(isAllergen);
+    return [{ id: b._id, label: b.name, note: b.note ?? "", tone: toneHex(clean(b.tone)), ...(group ? { group } : {}), ...(contains.length ? { contains } : {}) }];
   });
+  const creamIds = tastesOf(doc.creams, creams);
+  const fillingIds = tastesOf(doc.fillings, fillings);
   if (!sizes.length) return "has no sizes";
   if (!bases.length) return "has no published bases";
   if (!creamIds.length) return "has no published creams";
-  const img = doc.image && cmsImage(doc.image, [480, 720, 960, 1280]);
+  const tile = (source: CmsImage | null | undefined): TileImage[] => {
+    const img = source && cmsImage(source, [480, 720, 960, 1280]);
+    return img ? [{ src: img.src, srcSet: img.srcSet, alt: source.alt || doc.title!, position: img.position }] : [];
+  };
+  const [image] = tile(doc.image);
+  const gallery = image ? [image, ...(doc.gallery ?? []).flatMap(tile)] : [];
   return {
     id: key,
     title: doc.title,
     blurb: doc.blurb ?? "",
     figure: key === "number" || undefined,
-    image: img ? { src: img.src, srcSet: img.srcSet, alt: doc.image?.alt || doc.title, position: img.position } : undefined,
+    image,
+    gallery: gallery.length > 1 ? gallery : undefined,
     sizes,
     bases,
     creams: creamIds,
+    ...(fillingIds.length ? { fillings: fillingIds } : {}),
   };
 }
 
@@ -187,13 +210,14 @@ function categoryOf(key: CategoryId, doc: CategoryDoc | undefined, creams: Map<s
  */
 export async function getCatalog(): Promise<WizardCatalog | null> {
   if (!isSanityConfigured) return null;
-  const docs = await load("the cake builder's catalog", () => sanityFetch<CategoryDoc[]>(catalogQuery, { ids: KEYS.map(idOf) }));
+  const docs = await loadOrNull("the cake builder's catalog", () => sanityFetch<CategoryDoc[]>(catalogQuery, { ids: KEYS.map(idOf) }));
   if (!docs) return null;
   const creams = new Map<string, Cream>();
+  const fillings = new Map<string, Filling>();
   const categories: Category[] = [];
   const problems: string[] = [];
   for (const key of KEYS) {
-    const result = categoryOf(key, docs.find((doc) => doc._id === idOf(key)), creams);
+    const result = categoryOf(key, docs.find((doc) => doc._id === idOf(key)), creams, fillings);
     if (typeof result === "string") problems.push(`${idOf(key)} ${result}`);
     else categories.push(result);
   }
@@ -201,5 +225,5 @@ export async function getCatalog(): Promise<WizardCatalog | null> {
     console.warn(`[sanity] the cake builder keeps its built-in catalog until all four cake types are complete: ${problems.join("; ")}`);
     return null;
   }
-  return { categories, creams: [...creams.values()] };
+  return { categories, creams: [...creams.values()], fillings: [...fillings.values()] };
 }

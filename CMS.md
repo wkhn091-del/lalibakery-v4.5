@@ -85,9 +85,9 @@ cp .env.example .env
 |---|---|
 | `SANITY_STUDIO_PROJECT_ID` | ה-Project ID מצעד 1 |
 | `SANITY_STUDIO_DATASET` | `production` |
-| `SANITY_STUDIO_HOSTNAME` | השם בכתובת ה-Studio, למשל `lalibakery` (אותיות באנגלית, ספרות ומקפים) |
+| `SANITY_STUDIO_HOSTNAME` | רק השם בכתובת ה-Studio המאורח, בלי `https://` ובלי `.sanity.studio`: למשל `lalibakery`, וה-Studio יהיה ב-`https://lalibakery.sanity.studio` (אותיות אנגליות קטנות, ספרות ומקפים). זו לא כתובת האתר |
 
-"עריכה על האתר" מציגה בפיתוח את `http://localhost:3000`. ל-Studio המאורח (צעד 5) כותבים את כתובת האתר האמיתי בקובץ נפרד, `studio/.env.production`, ש-`npm run deploy` קורא ו-`npm run dev` לא:
+"עריכה על האתר" מציגה ב-`npm run dev` את האתר המקומי (`http://localhost:3000`), וב-Studio המאורח (צעד 5) את האתר החי ב-Vercel: `https://lalibakery-v4-5-h226.vercel.app` (`LIVE_SITE` ב-`studio/sanity.config.ts`). כשהאתר עובר לכתובת אחרת (למשל דומיין משלו), משנים את `LIVE_SITE`, או כותבים את הכתובת בקובץ `studio/.env.production`, ש-`npm run deploy` קורא ו-`npm run dev` לא, ומריצים שוב `npm run deploy`:
 
 ```bash
 cp .env.production.example .env.production    # ובו SANITY_STUDIO_PREVIEW_URL=https://…
@@ -121,7 +121,7 @@ npm run seed            # כותב, עם ההתחברות האישית מצעד 
 ### 5. העלאת ה-Studio לאוויר
 
 ```bash
-npm run deploy          # https://<SANITY_STUDIO_HOSTNAME>.sanity.studio (עם SANITY_STUDIO_PREVIEW_URL מ-.env.production)
+npm run deploy          # https://<SANITY_STUDIO_HOSTNAME>.sanity.studio, ו"עריכה על האתר" בו מציגה את האתר החי
 ```
 
 Sanity מארח את ה-Studio, והכניסה אליו היא דרך ההתחברות של Sanity. הוא מתעדכן לבד לגרסאות תיקון של Sanity (`autoUpdates` ב-`sanity.cli.ts`). אחרי ההעלאה הראשונה, ה-CLI מציע להוסיף `appId` ל-`sanity.cli.ts`: כדאי להוסיף.
@@ -160,7 +160,7 @@ sanity.io/manage, הפרויקט, **API**, ‏**Webhooks**, ‏**Create webhook*
 | URL | `https://<הדומיין של האתר>/api/revalidate` |
 | Dataset | `production` |
 | Trigger on | Create, Update, Delete |
-| Filter | `_type in ["siteSettings", "homePage", "cakePage", "cake", "category", "flavour", "cream"]` |
+| Filter | `_type in ["siteSettings", "homePage", "cakePage", "cake", "category", "flavour", "cream", "filling", "product", "shopCategory", "occasion", "style", "builderAddon", "storeSettings", "legalPage"]` |
 | Projection | `{_id, _type}` |
 | HTTP method | POST |
 | Drafts / Versions | כבויים (רק מה שפורסם מרענן את האתר) |
@@ -168,7 +168,11 @@ sanity.io/manage, הפרויקט, **API**, ‏**Webhooks**, ‏**Create webhook*
 
 בדיקה: לשנות משהו קטן ב-Studio וללחוץ Publish. ביומן הניסיונות של ה-webhook (Attempts log) אמור להופיע `200`, ורענון של האתר מציג את השינוי.
 
-webhook שנוצר לפני הגרסה הזו: לעדכן את ה-Filter לשורה שלמעלה, אחרת שינוי בטקסטים יגיע לאתר רק אחרי עד שעה.
+webhook שנוצר לפני הגרסה הזו: לעדכן את ה-Filter לשורה שלמעלה, אחרת שינוי בטקסטים, במוצרים או בהגדרות החנות יגיע לאתר רק אחרי עד שעה.
+
+שפות נוספות (אנגלית, רוסית): כל שדות החנות כבר שמורים בשלוש שפות, ועברית היא החובה היחידה. כדי להפעיל שפה: `SANITY_STUDIO_EXTRA_LOCALES=en,ru` ב-`studio/.env` (וב-`.env.production`, ואז `npm run deploy`), ו-`NEXT_PUBLIC_LOCALES=he,en,ru` באתר ב-Vercel. שדה שלא מולא בשפה מסוימת מוצג באתר בעברית. כשיותר משפה אחת פעילה, בראש החנות מופיע מחליף שפות.
+
+קישור לחנות בתפריט: "הגדרות כלליות" ← תפריט ← יעד "החנות" (`/products`). הוא לא נוסף אוטומטית לתפריט שכבר נשמר ב-Studio.
 
 ### 9. לפני שמוסרים לבעלים
 
@@ -176,7 +180,7 @@ webhook שנוצר לפני הגרסה הזו: לעדכן את ה-Filter לשו�
 - [ ] הגלריה באתר מציגה את התמונות מ-`cdn.sanity.io` (לחיצה ימנית על תמונה, "פתיחה בכרטיסייה חדשה")
 - [ ] בדף `/custom-cake` הבונה מציג את סוגי העוגות, הגדלים והמחירים מה-Studio
 - [ ] שינוי ב-Studio מופיע באתר תוך דקה, וה-webhook מחזיר `200`
-- [ ] "עריכה על האתר" ב-Studio המאורח מציגה את האתר האמיתי (`SANITY_STUDIO_PREVIEW_URL` לפני ה-deploy), לחיצה על כותרת פותחת את השדה שלה, והקלדה מתעדכנת בדף
+- [ ] "עריכה על האתר" ב-Studio המאורח מציגה את האתר החי (שורת הכתובת שמעל הדף: `LIVE_SITE`, לא `localhost`), לחיצה על כותרת פותחת את השדה שלה, והקלדה מתעדכנת בדף
 - [ ] אין באתר טקסט `[TODO: ...]` (ב-Studio: חיפוש `TODO`)
 - [ ] אם מוסיפים אי פעם Content-Security-Policy לאתר: לאפשר `https://cdn.sanity.io` ב-`img-src`
 
@@ -190,11 +194,14 @@ webhook שנוצר לפני הגרסה הזו: לעדכן את ה-Filter לשו�
 | לא מצליח להתחבר, מסך CORS, התחברות שחוזרת על עצמה | `http://localhost:3333` לא ברשימת ה-CORS, או שנכנסים דרך `127.0.0.1` | `npx sanity cors add http://localhost:3333 --credentials`, ולהיכנס בדיוק דרך `localhost` |
 | שגיאות משונות, "Invalid hook call", עיצוב שבור | התקנה חלקית או כפולה: שני עותקים של React או של Sanity UI, או התקנה רק בתיקיית האתר | `npm run reset` |
 | לא עולה בכלל, שגיאות תחביר | Node ישן מ-22.12 | Node 22 LTS, ואז `npm run reset` |
+| `npm run deploy`: ‏`"appHost" must match pattern` או `Creating https://http://…` | ב-`SANITY_STUDIO_HOSTNAME` נכתבה כתובת (למשל `http://localhost:3000`) במקום שם | ב-`studio/.env`: ‏`SANITY_STUDIO_HOSTNAME=lalibakery` (רק השם), ולהריץ שוב. כלום לא נוצר בניסיון שנכשל. כתובת האתר ל"עריכה על האתר" היא `SANITY_STUDIO_PREVIEW_URL`, ב-`studio/.env.production` |
 | חצי עובד, חצי ישן | שני שרתי Studio על אותו פורט (טאב ישן בטרמינל) | לסגור את הישן (הדוקטור מראה איך למצוא אותו) |
 | העריכות לא מופיעות באתר | ה-Studio והאתר מחוברים לפרויקטים או ל-datasets שונים | אותו Project ID ו-dataset ב-`studio/.env` וב-`.env.local` של האתר |
-| "עריכה על האתר" ריקה או "Unable to connect" | האתר לא רץ, או ש-`SANITY_STUDIO_PREVIEW_URL` מצביע לכתובת אחרת | להפעיל את האתר (`npm run dev` בתיקייה הראשית), או לתקן את הכתובת ולהפעיל מחדש את ה-Studio |
+| "עריכה על האתר" ריקה או "Unable to connect", ובשורת הכתובת `localhost` | ב-Studio המקומי: האתר לא רץ. ב-Studio המאורח: הוא נבנה לפני שהוגדרה כתובת האתר החי | מקומית: `npm run dev` בתיקייה הראשית. במאורח: `npm run deploy` שוב מ-`studio/` (מגרסה 4.5.2 הכתובת החיה היא ברירת המחדל) |
+| "Unable to connect", ובשורת הכתובת האתר החי | הדפדפן חוסם את העוגייה של מצב הטיוטה בתוך ה-iframe (Brave ו-Safari עושים את זה כברירת מחדל: האתר וה-Studio בדומיינים שונים), או שבאתר ב-Vercel חסרים `NEXT_PUBLIC_SANITY_PROJECT_ID` או `SANITY_API_READ_TOKEN` (אז בתוך המסגרת מופיעה הודעה שאומרת מה חסר) | ב-Brave: אייקון האריה בלשונית של ה-Studio, ולכבות את Shields לאתר הזה. או לעבוד ב-Chrome או ב-Edge. משתנים חסרים: להוסיף ב-Vercel, Settings, Environment Variables, ואז Redeploy |
+| בתוך המסגרת מופיע מסך התחברות של Vercel | Deployment Protection של Vercel פעיל על הכתובת הזו | להשתמש בכתובת ה-Production של הפרויקט, או לכבות את ההגנה ב-Vercel: Settings, Deployment Protection |
 | "עריכה על האתר" מציגה הודעה על `SANITY_API_READ_TOKEN` | לאתר חסר טוקן הקריאה (צעד 7) | להוסיף אותו ל-`.env.local` (או ב-Vercel), ולהפעיל מחדש את האתר (ב-Vercel: deploy חדש) |
-| "עריכה על האתר" מציגה את האתר, אבל שום דבר לא לחיץ ורואים רק מה שפורסם | הדפדפן חוסם את העוגייה של מצב הטיוטה בתוך ה-iframe (Safari עושה את זה כברירת מחדל: האתר וה-Studio בדומיינים שונים) | לעבוד ב-Chrome, או לפתוח את התצוגה בחלון נפרד (הכפתור בסרגל של "עריכה על האתר") |
+| "עריכה על האתר" מציגה את האתר, אבל שום דבר לא לחיץ ורואים רק מה שפורסם | הדפדפן חוסם את העוגייה של מצב הטיוטה בתוך ה-iframe (Brave ו-Safari עושים את זה כברירת מחדל: האתר וה-Studio בדומיינים שונים) | ב-Brave: לכבות את Shields ל-Studio (אייקון האריה). או לעבוד ב-Chrome או ב-Edge, או לפתוח את התצוגה בחלון נפרד (הכפתור בסרגל של "עריכה על האתר") |
 | לחיצה עובדת, אבל אין מה ללחוץ על טקסטים של דף הבית | מסמכי הטקסטים לא קיימים עדיין | `npm run seed` (צעד 4) |
 
 אחרי כל תיקון: להפעיל מחדש את `npm run dev` ולרענן את הטאב (Ctrl/Cmd+Shift+R).

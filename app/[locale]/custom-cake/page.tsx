@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import CakeBuilder from "@/components/CakeBuilder";
+import { DEFAULT_LOCALE } from "@/lib/i18n/config";
+import { routeLocale } from "@/lib/i18n/route";
 import { ORDER_PAGE } from "@/lib/routes";
 import { getCakePage, getSettings } from "@/sanity/content";
 
@@ -29,7 +32,9 @@ export const revalidate = 3600;
 
 // באותה מסגרת כמו שאר הדפים הפנימיים (הצהרת הנגישות): לוגו שחוזר לדף הבית, התוכן, וקישור חזרה.
 // הרוחב של השורות האלה זהה לרוחב של הבונה, כדי שהקצוות יתיישרו.
-export default async function CustomCakePage() {
+export default async function CustomCakePage({ params }: PageProps<"/[locale]/custom-cake">) {
+  // הבונה עוד בעברית בלבד: בשפה אחרת, הכתובת העברית
+  if ((await routeLocale(params)) !== DEFAULT_LOCALE) redirect(ORDER_PAGE);
   const [page, settings] = await Promise.all([getCakePage(), getSettings()]);
   return (
     <main id="main" className="simple-page">

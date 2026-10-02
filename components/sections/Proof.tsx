@@ -34,6 +34,7 @@ export type ProofItem = {
 /** c: "דף הבית", הגלריה. items: העוגות מה-CMS (sanity/data.ts: getGallery), או הגלריה המובנית (content.ts) */
 export default function Proof({ c, items }: { c: HomeContent["proof"]; items: ProofItem[] }) {
   const root = useRef<HTMLElement>(null);
+  const stats = c.stats.filter((s): s is typeof s & { value: number } => s.value !== null);
 
   useGSAP(
     () => {
@@ -107,23 +108,19 @@ export default function Proof({ c, items }: { c: HomeContent["proof"]; items: Pr
       <div className="wrap">
         <h2 id="proof-title" className="t-h2">{c.title}</h2>
         <p className="t-lead soft mt-5 max-w-[36ch]">{c.lead}</p>
-        <dl className="mt-12 flex flex-wrap gap-x-16 gap-y-8">
-          {c.stats.map((s, i) => (
-            <div key={i}>
-              <dd className="t-h2">
-                {s.value !== null ? (
-                  <>
-                    <span data-count={s.value}>{s.value.toLocaleString("he-IL")}</span>
-                    {s.suffix}
-                  </>
-                ) : (
-                  <span className="stat-todo soft hairline">{s.todo}</span>
-                )}
-              </dd>
-              <dt className="soft mt-2">{s.label}</dt>
-            </div>
-          ))}
-        </dl>
+        {stats.length > 0 && (
+          <dl className="mt-12 flex flex-wrap gap-x-16 gap-y-8">
+            {stats.map((s, i) => (
+              <div key={i} className="max-w-[24ch]">
+                <dd className="t-h2">
+                  <span data-count={s.value}>{s.value.toLocaleString("he-IL")}</span>
+                  {s.suffix}
+                </dd>
+                <dt className="soft mt-2">{s.label}</dt>
+              </div>
+            ))}
+          </dl>
+        )}
       </div>
 
       <div className="proof-pin mt-12 lg:mt-0">

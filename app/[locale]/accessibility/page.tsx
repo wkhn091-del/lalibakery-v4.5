@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { linksOf } from "@/lib/content/contact";
+import { DEFAULT_LOCALE } from "@/lib/i18n/config";
+import { routeLocale } from "@/lib/i18n/route";
 import { getSettings } from "@/sanity/content";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -10,7 +13,9 @@ export async function generateMetadata(): Promise<Metadata> {
 // "הגדרות כלליות" ב-Studio (הצהרת הנגישות ופרטי הקשר). מתרענן כמו שאר הדפים (app/api/revalidate)
 export const revalidate = 3600;
 
-export default async function AccessibilityPage() {
+export default async function AccessibilityPage({ params }: PageProps<"/[locale]/accessibility">) {
+  // ההצהרה עוד בעברית בלבד: בשפה אחרת, הכתובת העברית
+  if ((await routeLocale(params)) !== DEFAULT_LOCALE) redirect("/accessibility");
   const settings = await getSettings();
   const a = settings.accessibility;
   const business = settings.business;

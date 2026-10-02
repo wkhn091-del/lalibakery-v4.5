@@ -13,16 +13,25 @@ import { EASE_OUT, gsap, MQ } from "@/lib/gsap";
 import { priceText } from "@/lib/price";
 import { clean } from "@/lib/stega";
 import { fill } from "@/lib/text";
+import type { CakeRequestError, CakeRequestResult } from "@/app/[locale]/custom-cake/actions";
+import Turnstile from "@/components/Turnstile";
+import type { CakeRequestField } from "@/lib/order/request";
 import {
+  type Addon,
+  type AddonPick,
+  addonsFor,
   BUILT_IN_CATALOG,
   type CakeOrder,
+  chosenAddons,
+  MAX_ADDONS,
+  pickOf,
   type Cat,
   type Category,
   type CategoryId,
   categoryOf,
+  clashOf,
   colorName,
   COLORS,
-  creamClash,
   type Cream,
   type Draft,
   EMPTY,
@@ -30,6 +39,7 @@ import {
   type ExclusionId,
   FIGURE,
   figureOf,
+  fillingsOf,
   indexed,
   type Issue,
   issuesOf,
@@ -42,10 +52,16 @@ import {
   servingsText,
   type SizeVisual,
   type Step,
+  startOf,
   SURPRISE,
+  type TasteGroup,
+  TASTE_GROUPS,
+  type TileImage,
   type WizardCatalog,
 } from "@/lib/order/model";
+import { previewOf } from "@/lib/order/preview";
 import { clearWizard, loadWizard, localToday, saveWizard } from "@/lib/order/storage";
+import BuilderPreview from "./builder3d/BuilderPreview";
 import WhatsAppIcon from "./WhatsAppIcon";
 
 
@@ -87,8 +103,10 @@ type State = {
 const INITIAL: State = { step: 0, dir: 1, reached: 0, draft: EMPTY, showErrors: false, presetNuts: false, nutsOffered: false, status: "idle" };
 
 type Action =
-  | { type: "category"; category: Category }
+  | { type: "category"; category: Category; addons: string[]; cat: Cat }
   | { type: "patch"; patch: Partial<Draft> }
+  | { type: "addon"; addon: Addon }
+  | { type: "addonPatch"; key: string; patch: Partial<AddonPick> }
   | { type: "color"; id: string }
   | { type: "exclusion"; id: ExclusionId }
   | { type: "go"; step: Step }
@@ -102,19 +120,18 @@ function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "category": {
       const c = action.category;
-      // מה שכבר נבחר נשמר, אם הוא קיים גם בסוג החדש
-      const keep = (id: string | null, list: { id: string }[]) => (id && list.some((o) => o.id === id) ? id : null);
       const nuts = c.id === "kindergarten" && !state.nutsOffered && !d.exclusions.includes("no-nuts");
+      const exclusions: ExclusionId[] = nuts ? [...d.exclusions, "no-nuts"] : d.exclusions;
+      // העוגה מתחילה מברירות המחדל של הסוג; מה שכבר נבחר נשמר, אם הוא קיים גם בסוג החדש
       return {
         ...state,
         draft: {
           ...d,
           category: c.id,
           figure: c.figure ? d.figure : "",
-          size: keep(d.size, c.sizes),
-          base: keep(d.base, c.bases),
-          cream: d.cream && c.creams.includes(d.cream) ? d.cream : null,
-          exclusions: nuts ? [...d.exclusions, "no-nuts"] : d.exclusions,
+          ...startOf(action.cat, c, { ...d, exclusions }),
+          addons: d.addons.filter((p) => action.addons.includes(p.key)),
+          exclusions,
         },
         presetNuts: state.presetNuts || nuts,
         nutsOffered: state.nutsOffered || nuts,
@@ -122,6 +139,14 @@ function reducer(state: State, action: Action): State {
     }
     case "patch":
       return { ...state, draft: { ...d, ...action.patch } };
+    case "addon": {
+      const on = d.addons.some((p) => p.key === action.addon.key);
+      if (!on && d.addons.length >= MAX_ADDONS) return state;
+      const addons = on ? d.addons.filter((p) => p.key !== action.addon.key) : [...d.addons, pickOf(action.addon)];
+      return { ...state, draft: { ...d, addons } };
+    }
+    case "addonPatch":
+      return { ...state, draft: { ...d, addons: d.addons.map((p) => (p.key === action.key ? { ...p, ...action.patch } : p)) } };
     case "color": {
       const chosen = d.colors.filter((c) => c !== SURPRISE);
       let colors: string[];
@@ -205,8 +230,24 @@ export type CustomCakeWizardProps = {
   whatsapp: string;
   /** מוסיף את העוגה לסל. בלעדיו, הסיכום נשלח כבקשת הצעת מחיר בוואטסאפ */
   onAddToCart?: (order: CakeOrder) => void | Promise<void>;
+  /** שומר את הבקשה אצל בעלת העסק (Server Action: app/[locale]/custom-cake/actions.ts). בלעדיו, וואטסאפ */
+  onRequest?: (input: unknown) => Promise<CakeRequestResult>;
   className?: string;
 };
+
+export type Contact = { name: string; phone: string; email: string };
+type RequestState = {
+  contact: Contact;
+  token: string;
+  sending: boolean;
+  error: CakeRequestError | null;
+  fields: CakeRequestField[];
+  /** מספר הבקשה, אחרי שנשלחה */
+  sent: string | null;
+  /** מבקש מ-Turnstile אסימון חדש אחרי ניסיון שנכשל */
+  resetKey: number;
+};
+const NO_REQUEST: RequestState = { contact: { name: "", phone: "", email: "" }, token: "", sending: false, error: null, fields: [], sent: null, resetKey: 0 };
 
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(" ");
@@ -216,7 +257,7 @@ const BTN_INK =
 const FIELD =
   "w-full rounded-[10px] border border-ink/20 bg-white/70 px-3.5 text-[16px] text-ink transition-colors placeholder:text-ink-soft/60 hover:border-ink/40 focus:border-ink focus:outline-none";
 
-export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart, className }: CustomCakeWizardProps) {
+export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart, onRequest, className }: CustomCakeWizardProps) {
   const TEXT = text;
   const words = text.order;
   const cat = useMemo(() => indexed(catalog ?? BUILT_IN_CATALOG), [catalog]);
@@ -254,7 +295,7 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
   const pickCategory = (id: CategoryId, tapped: boolean) => {
     const picked = categoryOf(cat, id);
     if (!picked) return;
-    dispatch({ type: "category", category: picked });
+    dispatch({ type: "category", category: picked, addons: addonsFor(cat, picked.id).map((a) => a.key), cat });
     // לחיצה על כרטיס עוברת לבד לשלב הבא (במקלדת לא, כדי שאפשר יהיה לדפדף בין הכרטיסים)
     if (tapped && step === 0) {
       window.clearTimeout(advance.current);
@@ -307,6 +348,22 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
     heading.current?.focus({ preventScroll: true });
   }, [step, state.dir]);
 
+  // the live 3D cake: one canvas, in the side column on desktops, pinned above the step on phones
+  const desktop = useDesktop();
+  // before a type is chosen, the cake starts as a classic designer cake with its defaults
+  const spec = useMemo(() => {
+    const c = categoryOf(cat, draft.category) ?? categoryOf(cat, "designer") ?? cat.categories[0];
+    if (!c) return null;
+    return previewOf(cat, draft.category ? draft : { ...draft, category: c.id, ...startOf(cat, c, draft) });
+  }, [cat, draft]);
+  const preview = (where: "side" | "top") => (
+    <BuilderPreview
+      spec={spec}
+      text={TEXT.preview}
+      className={where === "side" ? "mb-6 [--preview-h:320px]" : "sticky top-0 z-10 -mx-[var(--gutter)] mt-4 -mb-2 bg-surface px-[var(--gutter)] pt-2 pb-1 [--preview-h:210px]"}
+    />
+  );
+
   const order = step === LAST ? orderOf(cat, draft, words) : null;
   // in the Studio's preview the texts carry invisible characters (lib/stega.ts): none in the message or the cart
   const href = `${whatsapp}?text=${encodeURIComponent(clean(orderText(cat, draft, words)))}`;
@@ -320,15 +377,53 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
       dispatch({ type: "status", status: "error" });
     }
   };
-  const cta = (full: boolean, dark = false) => (
-    <SubmitButton cart={!!onAddToCart} href={href} blocked={blocked || !order} sending={state.status === "sending"} onSubmit={submit} onSent={clearWizard} full={full} dark={dark} />
-  );
+  const [req, setReq] = useState<RequestState>(NO_REQUEST);
+  const requesting = !onAddToCart && !!onRequest;
+  const sendRequest = async () => {
+    if (blocked || !order || !onRequest || req.sending) return;
+    setReq((r) => ({ ...r, sending: true, error: null, fields: [] }));
+    let result: CakeRequestResult;
+    try {
+      result = await onRequest({ draft: clean(draft), ...req.contact, email: req.contact.email.trim() || undefined, turnstile: req.token || undefined });
+    } catch {
+      result = { ok: false, error: "error" };
+    }
+    if (result.ok) {
+      clearWizard();
+      setReq((r) => ({ ...r, sending: false, sent: result.code }));
+      return;
+    }
+    const failed = result;
+    setReq((r) => ({ ...r, sending: false, error: failed.error, fields: failed.fields ?? [], token: "", resetKey: r.resetKey + 1 }));
+    if (failed.error === "date" || failed.error === "date_full") dispatch({ type: "patch", patch: { date: "" } });
+  };
+  const cta = (full: boolean, dark = false) =>
+    requesting ? (
+      <button
+        type="button"
+        onClick={sendRequest}
+        disabled={blocked || !order || req.sending}
+        className={cx("btn-primary justify-center", full && "w-full flex-1", (blocked || !order || req.sending) && "cursor-not-allowed opacity-50", dark && "focus-visible:outline-ink-inv!")}
+      >
+        {req.sending ? TEXT.request.sending : TEXT.request.send}
+      </button>
+    ) : (
+      <SubmitButton cart={!!onAddToCart} href={href} blocked={blocked || !order} sending={state.status === "sending"} onSubmit={submit} onSent={clearWizard} full={full} dark={dark} />
+    );
+  const anotherCake = () => {
+    setReq(NO_REQUEST);
+    dispatch({ type: "reset" });
+  };
 
-  if (state.status === "added")
+  if (state.status === "added" || req.sent)
     return (
       <TextContext.Provider value={text}>
       <Frame ref={root} uid={uid} className={className}>
-        <Added onAnother={() => dispatch({ type: "reset" })} />
+        {req.sent ? (
+          <Sent code={req.sent} whatsapp={whatsapp} image={chosenAddons(cat, draft).some(([a]) => a.imageByWhatsapp)} onAnother={anotherCake} />
+        ) : (
+          <Added onAnother={anotherCake} />
+        )}
       </Frame>
       </TextContext.Provider>
     );
@@ -348,6 +443,7 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
             </h3>
             <p className="mt-2 max-w-[56ch] text-ink-soft">{TEXT.steps[step].sub}</p>
 
+            {!desktop && spec && step > 0 && preview("top")}
             <div className="mt-8">
               {step === 0 && <StepCategory uid={uid} value={draft.category} onPick={pickCategory} invalid={errors.includes("category")} />}
               {step === 1 && category && <StepBase uid={uid} category={category} draft={draft} dispatch={dispatch} errors={errors} />}
@@ -355,7 +451,9 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
               {step === 3 && (
                 <StepExclusions uid={uid} draft={draft} dispatch={dispatch} presetNuts={state.presetNuts} issues={issues} onFix={jump} />
               )}
-              {step === 4 && <StepSummary uid={uid} draft={draft} dispatch={dispatch} today={today} issues={issues} onEdit={jump} />}
+              {step === 4 && (
+                <StepSummary uid={uid} draft={draft} dispatch={dispatch} today={today} issues={issues} onEdit={jump} request={requesting ? { state: req, set: setReq } : null} />
+              )}
             </div>
           </div>
 
@@ -384,6 +482,7 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
         {/* בצד, בדסקטופ: העוגה שנבנית, ובסיכום כפתור השליחה */}
         <aside className="hidden lg:block" aria-label={TEXT.yourCake}>
           <div className="sticky top-8">
+            {desktop && preview("side")}
             {step < LAST ? (
               <LiveSummary draft={draft} />
             ) : (
@@ -395,7 +494,17 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
                 <div className="mt-6">{cta(true, true)}</div>
                 {blocked && <p className="mt-4 text-[15px] text-[#F3C9BD]">{TEXT.blocked}</p>}
                 {state.status === "error" && <p role="alert" className="mt-4 text-[15px] text-[#F3C9BD]">{TEXT.failed}</p>}
-                <p className="mt-4 t-caption text-ink-inv/70">{onAddToCart ? TEXT.approval : TEXT.quoteNote}</p>
+                {requesting ? (
+                  <>
+                    {req.error && <p role="alert" className="mt-4 text-[15px] text-[#F3C9BD]">{requestErrorText(TEXT, req.error)}</p>}
+                    <a href={href} target="_blank" rel="noopener" className="mt-4 inline-flex items-center gap-2 text-[15px] text-ink-inv/85 underline-offset-4 hover:underline">
+                      <WhatsAppIcon />
+                      {TEXT.request.orWhatsapp}
+                    </a>
+                  </>
+                ) : (
+                  <p className="mt-4 t-caption text-ink-inv/70">{onAddToCart ? TEXT.approval : TEXT.quoteNote}</p>
+                )}
               </div>
             )}
           </div>
@@ -413,6 +522,11 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
           {step < LAST ? <NextButton step={step} onClick={next} full /> : cta(true)}
         </div>
         {step === LAST && blocked && <p className="mt-2 text-center text-[14px] text-[#8E3524]">{TEXT.blocked}</p>}
+        {step === LAST && requesting && req.error && (
+          <p role="alert" className="mt-2 text-center text-[14px] text-[#8E3524]">
+            {requestErrorText(TEXT, req.error)}
+          </p>
+        )}
       </div>
     </Frame>
     </CatalogContext.Provider>
@@ -551,21 +665,22 @@ function SubmitButton({
 
 /* ─────────────────────────── שלב 1: סוג העוגה ─────────────────────────── */
 
-// באנטו: עוגת המספרים גבוהה בצד אחד, עוגת הגן רחבה מתחת לשתי העוגות המצולמות
+// באנטו לפי רוחב הרשת עצמה (ליד הסיכום היא צרה גם במסך רחב): עוגת המספרים גבוהה ורחבה מהשאר,
+// כי הצילומים שלה לאורך; עוגת הגן רחבה מתחת לשתי העוגות המצולמות
 const TILE: Record<CategoryId, string> = {
-  number: "col-span-2 aspect-[16/10] md:aspect-auto md:h-[300px] lg:col-span-1 lg:row-span-2 lg:h-auto",
-  designer: "aspect-[4/5] md:aspect-auto md:h-[300px] lg:h-auto",
-  birthday: "aspect-[4/5] md:aspect-auto md:h-[300px] lg:h-auto",
-  kindergarten: "col-span-2 aspect-[16/9] md:aspect-auto md:h-[260px] lg:h-auto",
+  number: "col-span-2 aspect-square @md:col-span-1 @md:row-span-2 @md:aspect-auto",
+  designer: "aspect-[4/5] @md:aspect-auto",
+  birthday: "aspect-[4/5] @md:aspect-auto",
+  kindergarten: "col-span-2 aspect-[16/9] @md:aspect-auto @md:h-[230px] @4xl:h-auto",
 };
 
 function StepCategory({ uid, value, onPick, invalid }: { uid: string; value: CategoryId | null; onPick: (id: CategoryId, tapped: boolean) => void; invalid: boolean }) {
   const TEXT = useText();
   const { categories } = useCatalog();
   return (
-    <fieldset data-invalid={invalid || undefined}>
+    <fieldset data-invalid={invalid || undefined} className="@container">
       <legend className="sr-only">{TEXT.steps[0].title}</legend>
-      <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-3 lg:grid-rows-[270px_270px]">
+      <div className="grid grid-cols-2 gap-3 @md:grid-cols-[1.15fr_1fr] @md:grid-rows-[230px_230px] @2xl:gap-4 @4xl:grid-cols-[1.25fr_1fr_1fr] @4xl:grid-rows-[270px_270px]">
         {categories.map((c) => {
           const checked = value === c.id;
           const light = !!c.image || c.id === "kindergarten";
@@ -608,6 +723,7 @@ function StepCategory({ uid, value, onPick, invalid }: { uid: string; value: Cat
 
 function TileArt({ c }: { c: Category }) {
   const zoom = "transition-transform duration-[900ms] ease-[var(--ease-out)] group-hover:scale-[1.035]";
+  if (c.gallery && c.gallery.length > 1) return <TileGallery images={c.gallery} zoom={zoom} />;
   if (c.image)
     return (
       <>
@@ -625,13 +741,13 @@ function TileArt({ c }: { c: Category }) {
       </>
     );
   if (c.figure)
-    // ספרות בקו מתאר, בגודל שנמדד לפי הכרטיס עצמו; בכרטיס הגבוה של הדסקטופ, אחת מעל השנייה
+    // ספרות בקו מתאר, בגודל שנמדד לפי הכרטיס עצמו
     return (
-      <span aria-hidden dir="ltr" className={cx("absolute inset-0 -z-10 flex items-center justify-center pb-24 lg:flex-col lg:pb-28", zoom)}>
+      <span aria-hidden dir="ltr" className={cx("absolute inset-0 -z-10 flex items-center justify-center pb-24", zoom)}>
         {["3", "0"].map((digit) => (
           <span
             key={digit}
-            className="font-display text-[min(58cqi,56cqb)] leading-[0.8] font-medium text-transparent select-none lg:text-[min(118cqi,38cqb)]"
+            className="font-display text-[min(58cqi,56cqb)] leading-[0.8] font-medium text-transparent select-none"
             style={{ WebkitTextStroke: "1.5px var(--color-ink)" }}
           >
             {digit}
@@ -643,6 +759,54 @@ function TileArt({ c }: { c: Category }) {
     <span aria-hidden className={cx("absolute inset-0 -z-10 flex items-center justify-center pb-24", zoom)}>
       <Tray className="h-[min(50cqb,44cqi)] w-auto" />
     </span>
+  );
+}
+
+const GALLERY_MS = 4200;
+
+/** כמה צילומים באותו כרטיס, מתחלפים בהצלבה איטית רק כשהכרטיס על המסך, ולא כשביקשו פחות תנועה */
+function TileGallery({ images, zoom }: { images: TileImage[]; zoom: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !matchMedia(MQ.motion).matches) return;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const io = new IntersectionObserver(([entry]) => {
+      clearInterval(timer);
+      if (entry.isIntersecting) timer = setInterval(() => setShown((i) => (i + 1) % images.length), GALLERY_MS);
+    });
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      clearInterval(timer);
+    };
+  }, [images.length]);
+  return (
+    <>
+      <span ref={ref} className={cx("absolute inset-0 -z-10", zoom)}>
+        {images.map((img, i) => (
+          <img
+            key={img.src}
+            src={img.src}
+            srcSet={img.srcSet}
+            sizes={img.srcSet ? "(min-width: 1024px) 30vw, (min-width: 768px) 50vw, 100vw" : undefined}
+            alt={i === shown ? img.alt : ""}
+            aria-hidden={i === shown ? undefined : true}
+            loading={i === 0 ? undefined : "lazy"}
+            decoding="async"
+            className={cx("absolute inset-0 size-full object-cover transition-opacity duration-[1400ms] ease-in-out", i === shown ? "opacity-100" : "opacity-0")}
+            style={img.position ? { objectPosition: img.position } : undefined}
+          />
+        ))}
+      </span>
+      <span aria-hidden className="absolute inset-x-0 bottom-0 -z-10 h-3/4" style={{ background: "linear-gradient(to top, rgba(var(--choc-rgb), 0.86), rgba(var(--choc-rgb), 0))" }} />
+      <span aria-hidden className="absolute end-4 top-4 flex gap-1.5">
+        {images.map((img, i) => (
+          <span key={img.src} className={cx("h-1.5 rounded-full bg-ink-inv transition-[width,opacity] duration-500", i === shown ? "w-4 opacity-95" : "w-1.5 opacity-50")} />
+        ))}
+      </span>
+    </>
   );
 }
 
@@ -687,6 +851,10 @@ function StepBase({ uid, category: c, draft, dispatch, errors }: StepProps) {
   const figure = figureOf(draft.figure);
   return (
     <div className="space-y-12">
+      <p className="-mb-3 flex items-center gap-2.5 rounded-[14px] bg-blush-soft/70 px-4 py-3 text-[14.5px] text-ink-soft">
+        <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-ink/50" />
+        {TEXT.startNote}
+      </p>
       {c.figure && (
         <div data-invalid={errors.includes("figure") || undefined}>
           <label htmlFor={`${uid}-figure`} className="text-[17px] font-medium">
@@ -748,19 +916,7 @@ function StepBase({ uid, category: c, draft, dispatch, errors }: StepProps) {
       </Group>
 
       <Group legend={TEXT.base} error={errors.includes("base") ? TEXT.errors.base : undefined}>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {c.bases.map((b) => (
-            <ChoiceCard key={b.id} name={`${uid}-base`} value={b.id} checked={draft.base === b.id} onSelect={() => set({ base: b.id })}>
-              <span className="flex items-center gap-4">
-                <Dot tone={b.tone} />
-                <span className="flex flex-col gap-0.5">
-                  <span className="font-medium">{b.label}</span>
-                  <span className="t-caption text-ink-soft">{b.note}</span>
-                </span>
-              </span>
-            </ChoiceCard>
-          ))}
-        </div>
+        <TastePicker name={`${uid}-base`} items={c.bases} value={draft.base} onSelect={(id) => id && set({ base: id })} exclusions={draft.exclusions} />
       </Group>
     </div>
   );
@@ -833,39 +989,30 @@ function SizeArt({ visual }: { visual: SizeVisual }) {
 function StepCreams({ uid, category: c, draft, dispatch, errors }: StepProps) {
   const TEXT = useText();
   const words = TEXT.order;
-  const { cream: creams } = useCatalog();
+  const cat = useCatalog();
+  const fillings = fillingsOf(cat, c);
   const set = (patch: Partial<Draft>) => dispatch({ type: "patch", patch });
   const chosen = draft.colors.filter((id) => id !== SURPRISE);
   return (
     <div className="space-y-12">
       <Group legend={TEXT.cream} error={errors.includes("cream") ? TEXT.errors.cream : undefined}>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {c.creams.map((id) => {
-            const cream = creams[id];
-            if (!cream) return null;
-            const clash = creamClash(cream, draft.exclusions, words);
-            const selected = draft.cream === id;
-            return (
-              <ChoiceCard key={id} name={`${uid}-cream`} value={id} checked={selected} disabled={!!clash && !selected} onSelect={() => set({ cream: id })}>
-                <span className="flex items-start gap-4">
-                  <Dot tone={cream.tone} />
-                  <span className="flex flex-col gap-1.5">
-                    <span className="font-medium">{cream.label}</span>
-                    <span className="flex flex-wrap gap-1.5">
-                      {creamTags(cream, TEXT.creamTags).map((t, i) => (
-                        <span key={i} className="rounded-full bg-ink/[0.06] px-2 py-0.5 text-[12.5px] text-ink-soft">
-                          {t}
-                        </span>
-                      ))}
-                    </span>
-                    {clash && <span className="t-caption text-[#8E3524]">{fill(TEXT.notFor, { request: clash.request })}</span>}
-                  </span>
-                </span>
-              </ChoiceCard>
-            );
-          })}
-        </div>
+        <TastePicker
+          name={`${uid}-cream`}
+          items={c.creams.flatMap((id) => (cat.cream[id] ? [cat.cream[id]] : []))}
+          value={draft.cream}
+          onSelect={(id) => id && set({ cream: id })}
+          exclusions={draft.exclusions}
+        />
       </Group>
+
+      {fillings.length > 0 && (
+        <Group legend={TEXT.filling}>
+          <p className="t-caption -mt-2 mb-4 text-ink-soft">
+            {TEXT.fillingHint} <span className="text-ink-soft/70">({TEXT.optional})</span>
+          </p>
+          <TastePicker name={`${uid}-filling`} items={fillings} value={draft.filling} onSelect={(id) => set({ filling: id })} exclusions={draft.exclusions} none={TEXT.noFilling} />
+        </Group>
+      )}
 
       <fieldset>
         <legend className="text-[17px] font-medium">{TEXT.colors}</legend>
@@ -914,17 +1061,229 @@ function StepCreams({ uid, category: c, draft, dispatch, errors }: StepProps) {
           {draft.message.trim() || <span className="text-ink-soft/50">{TEXT.messagePreview}</span>}
         </div>
       </div>
+
+      <Addons uid={uid} category={c} draft={draft} dispatch={dispatch} />
     </div>
   );
 }
 
-function creamTags(cream: Cream, t: WizardText["creamTags"]) {
+/* התוספות שהסוג הזה מציע: כל אחת נבחרת בלחיצה, ואז נפתחים הפרטים שלה (סוג, צבע, כמות, טקסט) */
+function Addons({ uid, category: c, draft, dispatch }: { uid: string; category: Category; draft: Draft; dispatch: (a: Action) => void }) {
+  const TEXT = useText();
+  const words = TEXT.order;
+  const cat = useCatalog();
+  const offered = addonsFor(cat, c.id);
+  if (!offered.length) return null;
+  const full = draft.addons.length >= MAX_ADDONS;
+  return (
+    <fieldset>
+      <legend className="text-[17px] font-medium">{TEXT.addons}</legend>
+      <p className="t-caption mt-1 text-ink-soft">
+        {TEXT.addonsHint} <span className="text-ink-soft/70">({TEXT.optional})</span>
+      </p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {offered.map((a) => {
+          const p = draft.addons.find((x) => x.key === a.key);
+          const set = (patch: Partial<AddonPick>) => dispatch({ type: "addonPatch", key: a.key, patch });
+          const id = `${uid}-addon-${a.key}`;
+          return (
+            <div key={a.key} className={cx("rounded-[16px] border transition-colors", p ? "border-ink bg-white/70" : "border-ink/15 hover:border-ink/40", p && (a.options.length > 1 || a.colorable || a.quantity || a.textMax > 0) && "md:col-span-2")}>
+              <label className={cx("flex cursor-pointer items-start gap-3 p-4", !p && full && "cursor-not-allowed opacity-50")}>
+                <input type="checkbox" className="peer sr-only" checked={!!p} disabled={!p && full} onChange={() => dispatch({ type: "addon", addon: a })} />
+                <span
+                  aria-hidden
+                  className={cx("mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-[6px] border peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink", p ? "border-ink bg-ink text-ink-inv" : "border-ink/30")}
+                >
+                  {p && <Check size={12} />}
+                </span>
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-medium">{a.title}</span>
+                  {a.description && <span className="t-caption text-ink-soft">{a.description}</span>}
+                </span>
+              </label>
+
+              {p && (a.options.length > 1 || a.colorable || a.quantity || a.textMax > 0) && (
+                <div className="grid gap-5 border-t border-ink/10 px-4 pt-4 pb-5 md:grid-cols-2">
+                  {a.options.length > 1 && (
+                    <fieldset className="md:col-span-2">
+                      <legend className="sr-only">{a.title}</legend>
+                      <div className="flex flex-wrap gap-2">
+                        {a.options.map((o) => (
+                          <label
+                            key={o.id}
+                            data-selected={p.option === o.id || undefined}
+                            className="cursor-pointer rounded-full border border-ink/15 bg-white/55 px-4 py-2 text-[15px] transition-colors hover:border-ink/40 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink data-[selected]:border-ink data-[selected]:bg-ink data-[selected]:text-ink-inv"
+                          >
+                            <input type="radio" name={`${id}-option`} value={o.id} checked={p.option === o.id} onChange={() => set({ option: o.id })} className="sr-only" />
+                            {o.label}
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                  )}
+                  {a.colorable && (
+                    <label className="block" htmlFor={`${id}-color`}>
+                      <span className="text-[15px] text-ink-soft">{TEXT.addonColor}</span>
+                      <select id={`${id}-color`} value={p.color ?? ""} onChange={(e) => set({ color: e.target.value || null })} className={cx(FIELD, "mt-2 h-11")}>
+                        <option value="">{TEXT.addonAnyColor}</option>
+                        {COLORS.map((col) => (
+                          <option key={col.id} value={col.id}>
+                            {colorName(col.id, words)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {a.quantity && (
+                    <label className="block" htmlFor={`${id}-qty`}>
+                      <span className="text-[15px] text-ink-soft">{TEXT.addonQty}</span>
+                      <input
+                        id={`${id}-qty`}
+                        type="number"
+                        inputMode="numeric"
+                        min={a.quantity[0]}
+                        max={a.quantity[1]}
+                        value={p.qty ?? a.quantity[0]}
+                        onChange={(e) => {
+                          const n = Math.round(Number(e.target.value));
+                          if (Number.isFinite(n)) set({ qty: Math.min(a.quantity![1], Math.max(a.quantity![0], n)) });
+                        }}
+                        className={cx(FIELD, "mt-2 h-11")}
+                      />
+                    </label>
+                  )}
+                  {a.textMax > 0 && (
+                    <label className="block md:col-span-2" htmlFor={`${id}-text`}>
+                      <span className="text-[15px] text-ink-soft">{TEXT.addonText}</span>
+                      <input id={`${id}-text`} value={p.text} maxLength={a.textMax} onChange={(e) => set({ text: e.target.value })} className={cx(FIELD, "mt-2 h-11")} />
+                      <span className="t-caption mt-1.5 block text-ink-soft/80">{`${p.text.length}/${a.textMax}`}</span>
+                    </label>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+function creamTags(item: { contains?: Cream["contains"]; parve?: boolean }, t: WizardText["creamTags"]) {
+  const contains = item.contains ?? [];
   const tags: string[] = [];
-  if (cream.contains.includes("dairy")) tags.push(t.dairy);
-  if (cream.parve) tags.push(t.parve);
-  if (cream.contains.includes("nuts")) tags.push(t.nuts);
-  if (cream.contains.includes("gluten")) tags.push(t.gluten);
+  if (contains.includes("dairy")) tags.push(t.dairy);
+  if (item.parve) tags.push(t.parve);
+  if (contains.includes("nuts")) tags.push(t.nuts);
+  if (contains.includes("gluten")) tags.push(t.gluten);
   return tags;
+}
+
+type TasteItem = { id: string; label: string; note?: string; tone: string | [string, string]; group?: TasteGroup; contains?: Cream["contains"]; parve?: boolean };
+const ALL = "all";
+// מתחת לזה אין צורך בלשוניות: כל הרשימה נכנסת במבט אחד
+const TABS_FROM = 9;
+
+/**
+ * רשימה ארוכה של טעמים (בסיסים, קרמים, מילויים): לשוניות לפי קבוצה, וב"הכול" כותרת לכל קבוצה.
+ * מה שמתנגש עם בקשות ההסרה מוצג ולא ניתן לבחירה, עם הסבר.
+ */
+function TastePicker({
+  name,
+  items,
+  value,
+  onSelect,
+  exclusions,
+  none,
+}: {
+  name: string;
+  items: TasteItem[];
+  value: string | null;
+  onSelect: (id: string | null) => void;
+  exclusions: ExclusionId[];
+  /** the label of a "nothing" choice, when the list is optional */
+  none?: string;
+}) {
+  const TEXT = useText();
+  const [tab, setTab] = useState<TasteGroup | typeof ALL>(ALL);
+  const groups = TASTE_GROUPS.filter((g) => items.some((i) => i.group === g));
+  const tabs = items.length >= TABS_FROM && groups.length > 1;
+  const shown = tab === ALL ? items : items.filter((i) => i.group === tab);
+  const sections: { group: TasteGroup | null; items: TasteItem[] }[] =
+    tabs && tab === ALL
+      ? [...groups.map((g) => ({ group: g, items: items.filter((i) => i.group === g) })), { group: null, items: items.filter((i) => !i.group || !groups.includes(i.group)) }]
+      : [{ group: null, items: shown }];
+
+  const card = (item: TasteItem) => {
+    const clash = clashOf(item, exclusions, TEXT.order);
+    const selected = value === item.id;
+    const tags = creamTags(item, TEXT.creamTags);
+    return (
+      <ChoiceCard key={item.id} name={name} value={item.id} checked={selected} disabled={!!clash && !selected} onSelect={() => onSelect(item.id)}>
+        <span className="flex items-start gap-3.5">
+          <Dot tone={item.tone} />
+          <span className="flex min-w-0 flex-col gap-1">
+            <span className="font-medium">{item.label}</span>
+            {item.note && <span className="t-caption text-ink-soft">{item.note}</span>}
+            {tags.length > 0 && (
+              <span className="flex flex-wrap gap-1.5">
+                {tags.map((t, i) => (
+                  <span key={i} className="rounded-full bg-ink/[0.06] px-2 py-0.5 text-[12px] text-ink-soft">
+                    {t}
+                  </span>
+                ))}
+              </span>
+            )}
+            {clash && <span className="t-caption text-[#8E3524]">{fill(TEXT.notFor, { request: clash.request })}</span>}
+          </span>
+        </span>
+      </ChoiceCard>
+    );
+  };
+
+  return (
+    <div className="@container">
+      {tabs && (
+        <div role="group" aria-label={TEXT.groups.all} className="-mx-1 mb-5 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+          {[ALL, ...groups].map((g) => (
+            <button
+              key={g}
+              type="button"
+              aria-pressed={tab === g}
+              onClick={() => setTab(g as TasteGroup | typeof ALL)}
+              className={cx(
+                "shrink-0 rounded-full border px-4 py-2 text-[14.5px] whitespace-nowrap transition-colors duration-200",
+                tab === g ? "border-ink bg-ink text-ink-inv" : "border-ink/15 bg-white/55 text-ink hover:border-ink/40",
+              )}
+            >
+              {TEXT.groups[g as keyof WizardText["groups"]]}
+              {g !== ALL && <span className={cx("ms-1.5 text-[12.5px]", tab === g ? "text-ink-inv/70" : "text-ink-soft")}>{items.filter((i) => i.group === g).length}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {none && (
+        <div className="mb-3 grid gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
+          <ChoiceCard name={name} value="" checked={value === null} onSelect={() => onSelect(null)}>
+            <span className="flex items-center gap-3.5">
+              <span aria-hidden className="size-7 shrink-0 rounded-full border border-dashed border-ink/35" />
+              <span className="font-medium">{none}</span>
+            </span>
+          </ChoiceCard>
+        </div>
+      )}
+      <div className="space-y-6">
+        {sections
+          .filter((s) => s.items.length)
+          .map((s) => (
+            <div key={s.group ?? "rest"}>
+              {s.group && <p className="t-caption mb-2.5 font-medium tracking-wide text-ink-soft">{TEXT.groups[s.group]}</p>}
+              <div className="grid gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">{s.items.map(card)}</div>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
 }
 
 /* ─────────────────────────── שלב 4: הסרות ובקשות ─────────────────────────── */
@@ -995,6 +1354,7 @@ function StepSummary({
   today,
   issues,
   onEdit,
+  request,
 }: {
   uid: string;
   draft: Draft;
@@ -1002,11 +1362,17 @@ function StepSummary({
   today: string;
   issues: Issue[];
   onEdit: (s: Step) => void;
+  request: { state: RequestState; set: (f: (r: RequestState) => RequestState) => void } | null;
 }) {
   const TEXT = useText();
   const words = TEXT.order;
   const cat = useCatalog();
   const c = categoryOf(cat, draft.category);
+  const days = useOpenDays(!!request);
+  // a date saved earlier that's no longer open (passed, closed, full) is cleared once the calendar is known
+  useEffect(() => {
+    if (days?.length && draft.date && !days.some((d) => d.date === draft.date && d.status !== "full")) dispatch({ type: "patch", patch: { date: "" } });
+  }, [days, draft.date, dispatch]);
   if (!c) return null;
   const rows = rowsOf(cat, draft, words).filter((r) => r.key !== "category" && r.key !== "date");
   return (
@@ -1049,20 +1415,125 @@ function StepSummary({
 
       <label className="block max-w-[320px]" htmlFor={`${uid}-date`}>
         <span className="text-[17px] font-medium">{TEXT.date}</span> <span className="t-caption text-ink-soft">({TEXT.optional})</span>
-        <input
-          id={`${uid}-date`}
-          type="date"
-          value={draft.date}
-          min={today || undefined}
-          onChange={(e) => dispatch({ type: "patch", patch: { date: e.target.value } })}
-          className={cx(FIELD, "mt-3 h-12")}
-        />
+        {days && days.length > 0 ? (
+          <select id={`${uid}-date`} value={draft.date} onChange={(e) => dispatch({ type: "patch", patch: { date: e.target.value } })} className={cx(FIELD, "mt-3 h-12")}>
+            <option value="">{TEXT.request.dateAny}</option>
+            {days.map((d) => (
+              <option key={d.date} value={d.date} disabled={d.status === "full"}>
+                {DAY_TEXT.format(new Date(`${d.date}T12:00:00Z`))}
+                {d.status === "few" ? ` · ${TEXT.request.few}` : d.status === "full" ? ` · ${TEXT.request.full}` : ""}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            id={`${uid}-date`}
+            type="date"
+            value={draft.date}
+            min={today || undefined}
+            onChange={(e) => dispatch({ type: "patch", patch: { date: e.target.value } })}
+            className={cx(FIELD, "mt-3 h-12")}
+          />
+        )}
       </label>
 
       <Issues items={issues.filter((i) => i.kind === "notice")} onFix={onEdit} />
-      <p className="t-caption text-ink-soft">{TEXT.approval}</p>
+      {request ? <RequestForm uid={uid} request={request} /> : <p className="t-caption text-ink-soft">{TEXT.approval}</p>}
     </div>
   );
+}
+
+const DAY_TEXT = new Intl.DateTimeFormat("he-IL", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+
+type OpenDay = { date: string; status: "free" | "few" | "full" };
+
+/** הימים הפתוחים להזמנה ביומן של בעלת העסק (app/api/availability), עם המצב שלהם. null: עוד לא ידוע או לא זמין */
+function useOpenDays(on: boolean): OpenDay[] | null {
+  const [days, setDays] = useState<OpenDay[] | null>(null);
+  useEffect(() => {
+    if (!on) return;
+    const ctrl = new AbortController();
+    fetch("/api/availability", { signal: ctrl.signal, cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { days?: unknown } | null) => {
+        if (!Array.isArray(body?.days)) return;
+        setDays(
+          body.days.filter(
+            (d): d is OpenDay => !!d && typeof d.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d.date) && ["free", "few", "full"].includes(d.status),
+          ),
+        );
+      })
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, [on]);
+  return days;
+}
+
+/** לאן לחזור ללקוח: שם, נייד ואימייל (לא חובה), ובדיקת הרובוט */
+function RequestForm({ uid, request }: { uid: string; request: { state: RequestState; set: (f: (r: RequestState) => RequestState) => void } }) {
+  const TEXT = useText();
+  const t = TEXT.request;
+  const { state, set } = request;
+  const field = (key: keyof Contact) => ({
+    id: `${uid}-${key}`,
+    value: state.contact[key],
+    "aria-invalid": state.fields.includes(key) || undefined,
+    "aria-describedby": state.fields.includes(key) ? `${uid}-${key}-error` : undefined,
+    onChange: (e: { target: { value: string } }) => set((r) => ({ ...r, contact: { ...r.contact, [key]: e.target.value }, fields: r.fields.filter((f) => f !== key) })),
+  });
+  const error = (key: keyof Contact) =>
+    state.fields.includes(key) && (
+      <span id={`${uid}-${key}-error`} className="mt-1.5 block text-[14px] text-[#8E3524]">
+        {t.errors[key]}
+      </span>
+    );
+  return (
+    <fieldset className="rounded-[24px] border border-ink/12 p-5 md:p-6">
+      <legend className="px-1 text-[17px] font-medium">{t.title}</legend>
+      <p className="t-caption text-ink-soft">{t.note}</p>
+      <div className="mt-5 grid gap-5 md:grid-cols-2">
+        <label className="block" htmlFor={`${uid}-name`}>
+          <span className="text-[15px] font-medium">{t.name}</span>
+          <input {...field("name")} autoComplete="name" maxLength={80} required className={cx(FIELD, "mt-2 h-12")} />
+          {error("name")}
+        </label>
+        <label className="block" htmlFor={`${uid}-phone`}>
+          <span className="text-[15px] font-medium">{t.phone}</span>
+          <input {...field("phone")} type="tel" inputMode="tel" autoComplete="tel" dir="ltr" maxLength={20} required className={cx(FIELD, "mt-2 h-12 text-end")} />
+          {error("phone")}
+        </label>
+        <label className="block md:col-span-2" htmlFor={`${uid}-email`}>
+          <span className="text-[15px] font-medium">{t.email}</span> <span className="t-caption text-ink-soft">({TEXT.optional})</span>
+          <input {...field("email")} type="email" autoComplete="email" dir="ltr" maxLength={254} className={cx(FIELD, "mt-2 h-12 text-end")} />
+          {error("email")}
+        </label>
+      </div>
+      <div className="mt-5">
+        <Turnstile onToken={(token) => set((r) => ({ ...r, token }))} label={t.robot} locale="he" resetKey={state.resetKey} />
+      </div>
+      <p className="t-caption mt-4 text-ink-soft">{TEXT.approval}</p>
+    </fieldset>
+  );
+}
+
+function requestErrorText(TEXT: WizardText, error: CakeRequestError): string {
+  const e = TEXT.request.errors;
+  switch (error) {
+    case "fields":
+      return e.fields;
+    case "robot":
+      return e.robot;
+    case "busy":
+      return e.busy;
+    case "date":
+      return e.date;
+    case "date_full":
+      return e.dateFull;
+    case "too_many":
+      return e.tooMany;
+    default:
+      return e.error;
+  }
 }
 
 function ColorList({ ids }: { ids: string[] }) {
@@ -1098,7 +1569,7 @@ function LiveSummary({ draft }: { draft: Draft }) {
     [l.base, value("base")],
     [l.cream, value("cream")],
   ];
-  const extras = rows.filter((r) => ["figure", "colors", "message"].includes(r.key));
+  const extras = rows.filter((r) => ["filling", "figure", "colors", "message", "addons"].includes(r.key));
   const excluded = EXCLUSIONS.filter((x) => draft.exclusions.includes(x.id));
   return (
     <div className="rounded-[24px] border border-ink/12 p-6">
@@ -1281,6 +1752,32 @@ function Added({ onAnother }: { onAnother: () => void }) {
   );
 }
 
+/** אחרי שהבקשה נשמרה: המספר שלה, ווואטסאפ להמשך (תמונה להדפס, שאלות) */
+function Sent({ code, whatsapp, image, onAnother }: { code: string; whatsapp: string; image: boolean; onAnother: () => void }) {
+  const TEXT = useText();
+  const t = TEXT.request;
+  const href = `${whatsapp}?text=${encodeURIComponent(`${TEXT.order.greeting}\n${code}`)}`;
+  return (
+    <div className="mt-10 rounded-[24px] bg-blush-soft px-6 py-12 text-center md:py-16" role="status">
+      <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-ink text-ink-inv">
+        <Check size={20} />
+      </span>
+      <p className="mt-5 font-display text-[28px] font-medium">{t.sent}</p>
+      <p className="mx-auto mt-2 max-w-[48ch] text-ink-soft">{fill(t.sentNote, { code })}</p>
+      {image && <p className="mx-auto mt-3 max-w-[48ch] font-medium">{t.sentImage}</p>}
+      <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
+        <a href={href} target="_blank" rel="noopener" className="btn-primary">
+          <WhatsAppIcon />
+          {t.sentWhatsapp}
+        </a>
+        <button type="button" onClick={onAnother} className="h-12 px-2 underline-offset-4 hover:underline">
+          {TEXT.another}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Dot({ tone }: { tone: string | [string, string] }) {
   const background = Array.isArray(tone) ? `conic-gradient(${tone[0]} 0 50%, ${tone[1]} 0 100%)` : tone;
   return <span aria-hidden className="size-9 shrink-0 rounded-full border border-ink/10" style={{ background }} />;
@@ -1325,6 +1822,19 @@ function useToday() {
     setToday(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
   }, []);
   return today;
+}
+
+/** רוחב דסקטופ (עמודת הצד מוצגת); בשרת ולפני ההידרציה: לא */
+function useDesktop() {
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = () => setDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return desktop;
 }
 
 /** גלילה לראש הבונה (דרך Lenis כשהוא פעיל) */

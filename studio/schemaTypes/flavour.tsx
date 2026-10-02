@@ -1,7 +1,7 @@
 import { StackIcon } from "@sanity/icons/Stack";
 import { defineField, defineType } from "sanity";
 import { Swatch } from "../components/ToneInput";
-import { toneField } from "./fields";
+import { ALLERGENS, allergensField, tasteGroupField, toneField } from "./fields";
 
 /** A base (the cake's sponge or crust), offered by the cake types that list it */
 export const flavour = defineType({
@@ -25,6 +25,9 @@ export const flavour = defineType({
       validation: (rule) => rule.max(80),
     }),
     toneField,
+    tasteGroupField,
+    // gluten and eggs are in every sponge: the builder has its own notice for those requests
+    allergensField("בסיס", ALLERGENS.filter((a) => a.value !== "gluten")),
   ],
   preview: {
     select: { title: "name", subtitle: "note", tone: "tone" },

@@ -1,14 +1,14 @@
 /*
-  Upstash Redis from the environment, for the rate limits (middleware.ts and the Send SMS hook).
+  Upstash Redis from the environment, for the rate limits (proxy.ts and the Send SMS hook).
   Upstash's own variable names, or the KV_ names the Vercel Marketplace integration sets.
-  null when neither is set: the caller decides what that means (the middleware lets requests
+  null when neither is set: the caller decides what that means (the proxy lets requests
   through; the SMS hook refuses to run in production).
 
-  Every caller works to a tight budget (the middleware adds to each request; Supabase waits 5 s
+  Every caller works to a tight budget (the proxy adds to each request; Supabase waits 5 s
   for the hook), so one quick retry instead of the client's default five.
 
-  The fetch-only build of the client (published as "cloudflare"): the default build reads
-  process.version, which Next.js flags in the Edge runtime the middleware runs on.
+  The fetch-only build of the client (published as "cloudflare"): it runs the same in every
+  runtime, and keeps Node-only code out of anything bundled for the edge.
 */
 import { Redis } from "@upstash/redis/cloudflare";
 
