@@ -21,6 +21,7 @@ export default function Footer({ settings, links }: Props) {
   const f = settings.footer;
   const business = settings.business;
   const year = new Date().getFullYear();
+  const social = SOCIAL.filter((id) => business.social[id].url.trim());
 
   return (
     <footer id="contact" className="site-footer" aria-labelledby="footer-title">
@@ -64,23 +65,26 @@ export default function Footer({ settings, links }: Props) {
             </ul>
           </div>
 
-          <div>
-            <h2 className="footer-h">{f.socialTitle}</h2>
-            <ul className="footer-social">
-              {SOCIAL.map((id) => {
-                const s = business.social[id];
-                const Icon = SOCIAL_ICONS[id];
-                return (
-                  <li key={id}>
-                    <a href={s.url || "#"} target={s.url ? "_blank" : undefined} rel="noopener" aria-label={s.label} title={s.url ? s.label : `${s.label} (${f.socialSoon})`}>
-                      <Icon />
-                    </a>
-                  </li>
-                );
-              })}
-            </ul>
-            <p className="footer-soft mt-4 text-[15px]">{f.socialNote}</p>
-          </div>
+          {/* a link that goes nowhere makes the site look unfinished: only the networks with an address */}
+          {social.length > 0 && (
+            <div>
+              <h2 className="footer-h">{f.socialTitle}</h2>
+              <ul className="footer-social">
+                {social.map((id) => {
+                  const s = business.social[id];
+                  const Icon = SOCIAL_ICONS[id];
+                  return (
+                    <li key={id}>
+                      <a href={s.url} target="_blank" rel="noopener" aria-label={s.label} title={s.label}>
+                        <Icon />
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="footer-soft mt-4 text-[15px]">{f.socialNote}</p>
+            </div>
+          )}
         </div>
 
         <div className="wrap">

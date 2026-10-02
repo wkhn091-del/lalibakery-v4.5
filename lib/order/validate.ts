@@ -10,7 +10,7 @@
   owner's: getCakePage(false).wizard.order (sanity/content.ts), as the wizard itself shows them.
 */
 import * as z from "zod/mini";
-import { addonProblem, type CakeOrder, type Cat, categoryOf, COLORS, type Draft, FIGURE, figureOf, issuesOf, ORDER_WORDS, orderOf, type OrderWords, SURPRISE } from "./model";
+import { addonProblem, type CakeOrder, type Cat, categoryOf, coatingsOf, COLORS, type Draft, FIGURE, figureOf, isTheme, issuesOf, layerCount, layersOf, ORDER_WORDS, orderOf, type OrderWords, sizeOf, SURPRISE } from "./model";
 import { OrderSchema } from "./schema";
 
 export type FieldErrors = Partial<Record<keyof Draft | "catalog", string[]>>;
@@ -25,7 +25,13 @@ export function validateOrder(input: unknown, cat: Cat, today = israelToday(), w
   const parsed = OrderSchema.safeParse(input);
   if (!parsed.success) return { ok: false, fields: z.flattenError(parsed.error).fieldErrors };
 
-  const d: Draft = { ...parsed.data, exclusions: [...new Set(parsed.data.exclusions)], colors: [...new Set(parsed.data.colors)] };
+  const d: Draft = {
+    ...parsed.data,
+    exclusions: [...new Set(parsed.data.exclusions)],
+    colors: [...new Set(parsed.data.colors)],
+    liked: [...new Set(parsed.data.liked)],
+    keep: [...new Set(parsed.data.keep)],
+  };
   const fields: FieldErrors = {};
   const fail = (key: keyof FieldErrors, message: string) => (fields[key] ??= []).push(message);
 
@@ -36,8 +42,18 @@ export function validateOrder(input: unknown, cat: Cat, today = israelToday(), w
     if (!c.sizes.some((s) => s.id === d.size)) fail("size", "Not offered for this cake");
     if (!c.bases.some((b) => b.id === d.base)) fail("base", "Not offered for this cake");
     if (!d.cream || !c.creams.includes(d.cream) || !cat.cream[d.cream]) fail("cream", "Not offered for this cake");
-    if (d.filling && (!c.fillings?.includes(d.filling) || !cat.filling[d.filling])) fail("filling", "Not offered for this cake");
+    const range = layersOf(sizeOf(c, d));
+    if (d.layers != null && (d.layers < range.min || d.layers > range.max)) fail("layers", "Not offered for this size");
+    if (d.layerBases.length > layerCount(c, d)) fail("layerBases", "More bases than layers");
+    if (d.layerBases.some((id) => id != null && !c.bases.some((b) => b.id === id))) fail("layerBases", "Not offered for this cake");
+    if (d.fillings.length > layerCount(c, d) - 1) fail("fillings", "More fillings than layers");
+    if (d.fillings.some((id) => id != null && (!c.fillings?.includes(id) || !cat.filling[id]))) fail("fillings", "Not offered for this cake");
+    if (d.coating != null && !coatingsOf(c).some((x) => x.id === d.coating)) fail("coating", "Not offered for this cake");
   }
+  if (d.themeId != null && !isTheme(d.themeId)) fail("themeId", "Not a theme");
+  const inPortfolio = (id: string) => cat.portfolio.some((p) => p.id === id);
+  if (d.liked.some((id) => !inPortfolio(id))) fail("liked", "Not in the gallery");
+  if (d.exact != null && !inPortfolio(d.exact)) fail("exact", "Not in the gallery");
   if (d.colors.some((id) => id !== SURPRISE && !COLORS.some((x) => x.id === id))) fail("colors", "Not in the palette");
   if (d.colors.includes(SURPRISE) && d.colors.length > 1) fail("colors", "\"Surprise me\" goes alone");
   if (new Set(d.addons.map((a) => a.key)).size !== d.addons.length) fail("addons", "Each add-on once");
@@ -46,7 +62,7 @@ export function validateOrder(input: unknown, cat: Cat, today = israelToday(), w
     if (problem) fail("addons", problem);
   }
   if (d.date && d.date < today) fail("date", "The date has passed");
-  const FIELD_OF = { "conflict-base": "base", conflict: "cream", "conflict-filling": "filling" } as const;
+  const FIELD_OF = { "conflict-base": "base", conflict: "cream", "conflict-filling": "fillings", "conflict-coating": "coating" } as const;
   for (const issue of issuesOf(cat, d, words)) {
     const key = issue.kind === "conflict" ? FIELD_OF[issue.id as keyof typeof FIELD_OF] : undefined;
     if (key && !fields[key]) fail(key, "Conflicts with the exclusions");

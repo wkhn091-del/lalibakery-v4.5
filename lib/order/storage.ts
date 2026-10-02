@@ -9,7 +9,7 @@
   year typed with five digits shouldn't cost the whole cake). Storage that throws (private
   browsing, blocked, full) just means nothing is saved.
 */
-import { addonProblem, type Cat, categoryOf, COLORS, type Draft, EMPTY, LAST, type Step, SURPRISE } from "./model";
+import { addonProblem, type Cat, type Category, categoryOf, coatingsOf, COLORS, type Draft, EMPTY, isTheme, LAST, layerCount, layersOf, type Step, SURPRISE } from "./model";
 import { asDraft, DraftSchema } from "./schema";
 
 const KEY = "lali:wizard:v1";
@@ -25,6 +25,19 @@ export function localToday(now = new Date()): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
+/** the layers within what the size allows, a filling for each gap the catalog still offers, an offered coating */
+function fitInside(cat: Cat, c: Category, d: Draft): Pick<Draft, "layers" | "layerBases" | "fillings" | "coating"> {
+  const range = layersOf(c.sizes.find((s) => s.id === d.size));
+  const layers = d.layers != null && d.layers >= range.min && d.layers <= range.max ? d.layers : null;
+  const gaps = layerCount(c, { size: d.size, layers }) - 1;
+  return {
+    layers,
+    layerBases: d.layerBases.slice(0, gaps + 1).map((id) => (id && c.bases.some((b) => b.id === id) ? id : null)),
+    fillings: d.fillings.slice(0, gaps).map((id) => (id && c.fillings?.includes(id) && cat.filling[id] ? id : null)),
+    coating: d.coating && coatingsOf(c).some((x) => x.id === d.coating) ? d.coating : null,
+  };
+}
+
 /** Keeps only what the catalog still offers, and clears a date that has passed */
 export function fitToCatalog(cat: Cat, d: Draft, today: string): Draft {
   const c = categoryOf(cat, d.category);
@@ -36,7 +49,10 @@ export function fitToCatalog(cat: Cat, d: Draft, today: string): Draft {
     size: offered(d.size, c.sizes),
     base: offered(d.base, c.bases),
     cream: d.cream && c.creams.includes(d.cream) && cat.cream[d.cream] ? d.cream : null,
-    filling: d.filling && c.fillings?.includes(d.filling) && cat.filling[d.filling] ? d.filling : null,
+    ...fitInside(cat, c, d),
+    themeId: d.themeId && isTheme(d.themeId) ? d.themeId : null,
+    liked: d.liked.filter((id, i, all) => all.indexOf(id) === i && cat.portfolio.some((p) => p.id === id)),
+    exact: d.exact && cat.portfolio.some((p) => p.id === d.exact) ? d.exact : null,
     colors: d.colors.filter((id) => id === SURPRISE || COLORS.some((x) => x.id === id)),
     addons: d.addons.filter((p, i, all) => all.findIndex((x) => x.key === p.key) === i && !addonProblem(cat, c.id, p)),
     date: d.date && d.date >= today ? d.date : "",

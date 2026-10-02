@@ -9,7 +9,7 @@ import { INSCRIPTION } from "./config";
 export type Region = { x: number; y: number; w: number; h: number };
 
 export const hero3d = {
-  /** How far the assembly has come, 0–1. Written by a GSAP ScrollTrigger scrub in Hero.tsx. */
+  /** How far the assembly has come, 0–1. Played by a timed GSAP tween in Hero.tsx once the scene is ready. */
   progress: 0,
   /** How fast the page is scrolling, px/s (it stirs the floating sweets) */
   velocity: 0,

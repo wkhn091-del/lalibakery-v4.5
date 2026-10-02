@@ -1,5 +1,5 @@
-// The Anatomy of a Cake, on one progress value 0 → 1, scrubbed by the page's scroll (GSAP
-// ScrollTrigger in Hero.tsx). Each step owns a window of it; the camera and every part of the
+// The Anatomy of a Cake, on one progress value 0 → 1, played over a few seconds once the scene is
+// ready (a GSAP tween in Hero.tsx). Each step owns a window of it; the camera and every part of the
 // cake read these same windows, so they stay in sync. Change a window here and everything follows.
 export type Window = readonly [number, number];
 

@@ -106,41 +106,46 @@ const COAT = 0.045;
 const CRUMB_SCALE = 1.6;
 
 /**
- * The layers seen where the cake is cut, as one geometry for each of what they're made of: sponge,
+ * The layers seen where the cake is cut, as one geometry for each of what they're made of: each sponge layer,
  * between each two layers a band of cream with the filling inside its ring (or cream all through),
  * and the coat over the top and down the outside. `edge` rounds the coat's top outer corner.
  */
-export function cutFaces(faces: CutFace[], height: number, layers: number, filling: boolean, edge: number): Record<CutPart, THREE.BufferGeometry | null> {
+/** `fills[i]`: the gap after sponge layer i has a filling (the cake has fills.length + 1 layers). The filling of each gap comes back on its own, so each can take its own colour */
+export function cutFaces(faces: CutFace[], height: number, fills: boolean[], edge: number): CutGeometries {
+  const layers = fills.length + 1;
   const parts: Record<CutPart, THREE.BufferGeometry[]> = { coat: [], sponge: [], cream: [], filling: [] };
+  const gaps: THREE.BufferGeometry[][] = fills.map(() => []);
+  const sponges: THREE.BufferGeometry[][] = Array.from({ length: layers }, () => []);
   for (const face of faces) {
     const W = face.width;
-    const local: [CutPart, THREE.BufferGeometry][] = [];
-    const rect = (part: CutPart, x0: number, x1: number, y0: number, y1: number, lift: number) => {
+    const local: [CutPart, THREE.BufferGeometry, number][] = [];
+    // the number: which gap a filling is in, or which layer a sponge is
+    const rect = (part: CutPart, x0: number, x1: number, y0: number, y1: number, lift: number, gap = -1) => {
       if (x1 - x0 < 1e-3 || y1 - y0 < 1e-3) return;
       const g = new THREE.PlaneGeometry(x1 - x0, y1 - y0).translate((x0 + x1) / 2, (y0 + y1) / 2, lift);
-      local.push([part, g]);
+      local.push([part, g, gap]);
     };
     rect("coat", W - COAT, W, 0, height - edge, 0.0005);
     rect("coat", 0, W - edge, height - COAT, height, 0.0005);
-    if (edge > 0) local.push(["coat", new THREE.CircleGeometry(edge, 10, 0, Math.PI / 2).translate(W - edge, height - edge, 0.0005)]);
+    if (edge > 0) local.push(["coat", new THREE.CircleGeometry(edge, 10, 0, Math.PI / 2).translate(W - edge, height - edge, 0.0005), -1]);
     const inner = height - COAT;
     const s = inner / (layers + (layers - 1) * 0.24);
     const c = s * 0.24;
     const ring = (W - COAT) * 0.74;
     let y = 0;
     for (let i = 0; i < layers; i++) {
-      rect("sponge", 0, W - COAT, y, y + s, 0.002);
+      rect("sponge", 0, W - COAT, y, y + s, 0.002, i);
       y += s;
       if (i === layers - 1) break;
-      if (filling) {
-        rect("filling", 0, ring, y, y + c, 0.002);
+      if (fills[i]) {
+        rect("filling", 0, ring, y, y + c, 0.002, i);
         rect("cream", ring, W - COAT, y, y + c, 0.002);
       } else rect("cream", 0, W - COAT, y, y + c, 0.002);
       y += c;
     }
     const basis = new THREE.Matrix4().makeBasis(face.along, new THREE.Vector3(0, 1, 0), face.facing).setPosition(face.origin);
     const mirrored = basis.determinant() < 0;
-    for (const [part, g] of local) {
+    for (const [part, g, gap] of local) {
       const f = flat(g);
       // the crumb follows where it is on the face, not each band's own corners
       const pos = f.attributes.position as THREE.BufferAttribute;
@@ -160,23 +165,20 @@ export function cutFaces(faces: CutFace[], height: number, layers: number, filli
         }
       }
       f.deleteAttribute("normal");
-      parts[part].push(f);
+      if (gap >= 0) (part === "sponge" ? sponges : gaps)[gap].push(f);
+      else parts[part].push(f);
     }
   }
-  const out = {} as Record<CutPart, THREE.BufferGeometry | null>;
-  for (const part of Object.keys(parts) as CutPart[]) {
-    const list = parts[part];
-    if (!list.length) {
-      out[part] = null;
-      continue;
-    }
+  const merged = (list: THREE.BufferGeometry[]) => {
+    if (!list.length) return null;
     const g = mergeGeometries(list)!;
     g.computeVertexNormals();
     list.forEach((x) => x.dispose());
-    out[part] = g;
-  }
-  return out;
+    return g;
+  };
+  return { coat: merged(parts.coat), sponges: sponges.map(merged), cream: merged(parts.cream), fillings: gaps.map(merged) };
 }
+export type CutGeometries = { coat: THREE.BufferGeometry | null; sponges: (THREE.BufferGeometry | null)[]; cream: THREE.BufferGeometry | null; fillings: (THREE.BufferGeometry | null)[] };
 
 /** The sponge's crumb: fine pores and specks, white so it takes the base's colour */
 export function crumbTexture() {
@@ -315,6 +317,32 @@ export function swirlGeometry() {
   const tip = new THREE.SphereGeometry(0.06, 16, 10).translate(0, 0.76, 0);
   return merge([tube, tip]);
 }
+
+/** A rosette from a star tip, about 1.5 cm across: a low spiral wound in from the outside, ridged */
+export function rosetteGeometry() {
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i <= 60; i++) {
+    const t = i / 60;
+    const a = t * 1.8 * Math.PI * 2;
+    const r = 0.05 * (1 - t) + 0.006;
+    pts.push(new THREE.Vector3(Math.sin(a) * r, 0.018 + t * 0.022, Math.cos(a) * r));
+  }
+  const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 90, 0.021, 10, false);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    const k = 1 + 0.06 * Math.cos(8 * Math.atan2(x, z));
+    pos.setX(i, x * k);
+    pos.setZ(i, z * k);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** A drip's stem, one unit long hanging down from y = 0 (scaled to its length), and the round drop at its end */
+export const dripStemGeometry = () => new THREE.CylinderGeometry(0.026, 0.03, 1, 12, 1).translate(0, -0.5, 0);
+export const dripDropGeometry = () => new THREE.SphereGeometry(0.036, 16, 10).scale(1, 1.25, 1);
 
 // ─── Add-on pieces ───────────────────────────────────────────────────────────────────
 

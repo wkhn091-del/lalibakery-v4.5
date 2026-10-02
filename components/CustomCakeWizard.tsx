@@ -20,6 +20,7 @@ import {
   type Addon,
   type AddonPick,
   addonsFor,
+  baseSlots,
   BUILT_IN_CATALOG,
   type CakeOrder,
   chosenAddons,
@@ -30,6 +31,7 @@ import {
   type CategoryId,
   categoryOf,
   clashOf,
+  coatingsOf,
   colorName,
   COLORS,
   type Cream,
@@ -37,29 +39,40 @@ import {
   EMPTY,
   EXCLUSIONS,
   type ExclusionId,
+  type Filling,
   FIGURE,
   figureOf,
+  fillingSlots,
   fillingsOf,
   indexed,
+  isTheme,
   type Issue,
   issuesOf,
+  KEEP_KEYS,
+  type KeepKey,
   LAST,
+  layerCount,
+  layersOf,
   MAX_COLORS,
+  MAX_LIKED,
   orderOf,
   orderText,
   rowsOf,
   servingsOf,
   servingsText,
+  sizeOf,
   type SizeVisual,
   type Step,
   startOf,
   SURPRISE,
   type TasteGroup,
   TASTE_GROUPS,
+  THEMES,
   type TileImage,
   type WizardCatalog,
 } from "@/lib/order/model";
-import { previewOf } from "@/lib/order/preview";
+import { PIPING_STYLES, type PipingStyle, previewOf } from "@/lib/order/preview";
+import { isInspirationLink } from "@/lib/order/schema";
 import { clearWizard, loadWizard, localToday, saveWizard } from "@/lib/order/storage";
 import BuilderPreview from "./builder3d/BuilderPreview";
 import WhatsAppIcon from "./WhatsAppIcon";
@@ -304,6 +317,40 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
   };
   useEffect(() => () => window.clearTimeout(advance.current), []);
 
+  // Each step is an entry in the browser's history (?step=2), so the phone's back gesture and the
+  // browser's back button go to the previous step instead of leaving the builder.
+  const fromHistory = useRef(false);
+  /** the page's first step, and a draft restored from storage, take the page's own entry */
+  const replaceNext = useRef(true);
+  useEffect(() => {
+    if (fromHistory.current) {
+      fromHistory.current = false;
+      return;
+    }
+    const replace = replaceNext.current;
+    replaceNext.current = false;
+    const url = new URL(window.location.href);
+    const want = step > 0 ? String(step + 1) : null;
+    if (url.searchParams.get("step") === want) return;
+    if (want) url.searchParams.set("step", want);
+    else url.searchParams.delete("step");
+    if (replace) window.history.replaceState(null, "", url);
+    else window.history.pushState(null, "", url);
+  }, [step]);
+  const reachable = Math.min(state.reached, open);
+  useEffect(() => {
+    const onPop = () => {
+      const asked = Number(new URLSearchParams(window.location.search).get("step") ?? "1") - 1;
+      const s = Math.max(0, Math.min(Number.isFinite(asked) ? asked : 0, reachable, LAST)) as Step;
+      if (s === step) return;
+      fromHistory.current = true;
+      window.clearTimeout(advance.current);
+      dispatch({ type: "go", step: s });
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [step, reachable]);
+
   // Saved in this browser (lib/order/storage.ts). Restored once, right after hydration and before
   // the first paint: the server renders an empty wizard, so reading storage during render wouldn't
   // match it. Saved 300 ms after each change; cleared once the order is sent, and by starting over.
@@ -313,9 +360,16 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
     if (restored.current) return;
     restored.current = true;
     const saved = loadWizard(cat, localToday());
+    // the event the visitor tapped on the home page ("מה האירוע שלכם?") is already their first answer
+    const theme = new URLSearchParams(window.location.search).get("theme");
+    if (theme && isTheme(theme) && !saved?.draft.themeId) {
+      if (saved) saved.draft = { ...saved.draft, themeId: theme };
+      else dispatch({ type: "patch", patch: { themeId: theme } });
+    }
     if (!saved) return;
     const at = Math.min(saved.step, openUpTo(cat, saved.draft)) as Step;
     restoring.current = at !== state.step; // the step changes: no entrance animation or focus for it
+    replaceNext.current = true; // the restored step takes the page's own history entry
     dispatch({ type: "restore", step: at, reached: saved.reached, draft: saved.draft });
   }, [cat, state.step]);
   useEffect(() => {
@@ -356,13 +410,24 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
     if (!c) return null;
     return previewOf(cat, draft.category ? draft : { ...draft, category: c.id, ...startOf(cat, c, draft) });
   }, [cat, draft]);
-  const preview = (where: "side" | "top") => (
-    <BuilderPreview
-      spec={spec}
-      text={TEXT.preview}
-      className={where === "side" ? "mb-6 [--preview-h:320px]" : "sticky top-0 z-10 -mx-[var(--gutter)] mt-4 -mb-2 bg-surface px-[var(--gutter)] pt-2 pb-1 [--preview-h:210px]"}
-    />
-  );
+  const preview = (where: "side" | "top") =>
+    where === "side" ? (
+      <BuilderPreview spec={spec} text={TEXT.preview} className="mb-6 [--preview-h:320px]" />
+    ) : (
+      // בטלפון העוגה דבוקה למעלה, ואיתה "חזרה": שניהם נשארים בעין גם כשגוללים בתוך שלב ארוך
+      <div className="sticky top-0 z-10 -mx-[var(--gutter)] mt-4 -mb-2 bg-surface px-[var(--gutter)] pt-2 pb-1">
+        <BuilderPreview spec={spec} text={TEXT.preview} className="[--preview-h:210px]" />
+        <button
+          type="button"
+          onClick={back}
+          aria-label={TEXT.back}
+          className="absolute start-[calc(var(--gutter)+10px)] top-4 inline-flex h-10 items-center gap-1.5 rounded-full border border-ink/15 bg-surface/90 px-3.5 text-[14px] text-ink backdrop-blur-sm"
+        >
+          <Arrow back />
+          {TEXT.back}
+        </button>
+      </div>
+    );
 
   const order = step === LAST ? orderOf(cat, draft, words) : null;
   // in the Studio's preview the texts carry invisible characters (lib/stega.ts): none in the message or the cart
@@ -437,7 +502,24 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
       <div className="mt-8 grid gap-10 lg:mt-12 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-16">
         <div className="min-w-0">
           <div ref={panel} role="group" aria-labelledby={`${uid}-step`}>
-            <p className="t-caption text-ink-soft">{fill(TEXT.stepOf, { n: step + 1, total: TEXT.steps.length })}</p>
+            {/* בכיוון הקריאה: "חזרה" מימין, "המשך" משמאל, כמו דפדוף בספר */}
+            <div className="flex min-h-10 items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                {step > 0 && (
+                  <button type="button" onClick={back} className="hidden h-10 items-center gap-1.5 rounded-full border border-ink/15 px-4 text-[15px] text-ink transition-colors hover:border-ink/40 lg:inline-flex">
+                    <Arrow back />
+                    {TEXT.back}
+                  </button>
+                )}
+                <p className="t-caption text-ink-soft">{fill(TEXT.stepOf, { n: step + 1, total: TEXT.steps.length })}</p>
+              </div>
+              {step < LAST && (
+                <button type="button" onClick={next} className="hidden h-10 items-center gap-1.5 rounded-full bg-ink px-4 text-[15px] font-medium text-ink-inv transition-colors hover:bg-ink/85 lg:inline-flex">
+                  {step === 3 ? TEXT.toSummary : TEXT.next}
+                  <Arrow />
+                </button>
+              )}
+            </div>
             <h3 id={`${uid}-step`} ref={heading} tabIndex={-1} className="mt-1 font-display text-[28px] leading-[1.15] font-medium tracking-[-0.01em] outline-none! md:text-[36px]">
               {TEXT.steps[step].heading}
             </h3>
@@ -457,25 +539,6 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
             </div>
           </div>
 
-          {/* ניווט בדסקטופ */}
-          <div className="mt-12 hidden items-center justify-between gap-4 border-t border-ink/10 pt-6 lg:flex">
-            {step > 0 ? (
-              <button type="button" onClick={back} className="inline-flex h-12 items-center gap-2 px-1 text-ink-soft transition-colors hover:text-ink">
-                <Arrow back />
-                {TEXT.back}
-              </button>
-            ) : (
-              <span />
-            )}
-            <div className="flex items-center gap-5">
-              {step < 3 && canJump(LAST) && (
-                <button type="button" onClick={() => jump(LAST)} className="h-12 px-1 underline-offset-4 hover:underline">
-                  {TEXT.toSummary}
-                </button>
-              )}
-              {step < LAST && <NextButton step={step} onClick={next} />}
-            </div>
-          </div>
           {state.status === "error" && <p role="alert" className="mt-4 text-[15px] text-[#8E3524] lg:hidden">{TEXT.failed}</p>}
         </div>
 
@@ -511,12 +574,12 @@ export default function CustomCakeWizard({ catalog, text, whatsapp, onAddToCart,
         </aside>
       </div>
 
-      {/* ניווט במובייל: דבוק לתחתית המסך כל עוד הבונה על המסך */}
-      <div className="sticky bottom-0 z-20 -mx-[var(--gutter)] mt-10 border-t border-ink/10 bg-surface px-[var(--gutter)] pt-3 pb-[max(12px,env(safe-area-inset-bottom))] lg:hidden">
-        <div className="flex items-center gap-3">
-          {step > 0 && (
-            <button type="button" onClick={back} aria-label={TEXT.back} className="flex size-14 shrink-0 items-center justify-center rounded-[10px] border border-ink/20 text-ink">
-              <Arrow back />
+      {/* ההמשך דבוק לתחתית המסך בכל גודל: לא צריך לגלול עד סוף השלב כדי להתקדם. "חזרה" נמצא למעלה, ליד שם השלב */}
+      <div className={cx("sticky bottom-0 z-20 -mx-[var(--gutter)] mt-10 border-t border-ink/10 bg-surface px-[var(--gutter)] pt-3 pb-[max(12px,env(safe-area-inset-bottom))]", step === LAST && "lg:hidden")}>
+        <div className="flex items-center gap-3 lg:justify-end lg:gap-5">
+          {step < 3 && canJump(LAST) && (
+            <button type="button" onClick={() => jump(LAST)} className="hidden h-12 px-1 underline-offset-4 hover:underline lg:inline-block">
+              {TEXT.toSummary}
             </button>
           )}
           {step < LAST ? <NextButton step={step} onClick={next} full /> : cta(true)}
@@ -611,7 +674,7 @@ function NextButton({ step, onClick, full }: { step: Step; onClick: () => void; 
   const TEXT = useText();
   const upcoming = TEXT.steps[step + 1]?.title;
   return (
-    <button type="button" onClick={onClick} className={cx(BTN_INK, full && "flex-1")}>
+    <button type="button" onClick={onClick} className={cx(BTN_INK, full && "flex-1 lg:flex-none")}>
       <span>
         {step === 3 ? TEXT.toSummary : TEXT.next}
         {step < 3 && upcoming && <span className="hidden font-normal text-ink-inv/65 sm:inline">{`: ${upcoming}`}</span>}
@@ -677,8 +740,10 @@ const TILE: Record<CategoryId, string> = {
 function StepCategory({ uid, value, onPick, invalid }: { uid: string; value: CategoryId | null; onPick: (id: CategoryId, tapped: boolean) => void; invalid: boolean }) {
   const TEXT = useText();
   const { categories } = useCatalog();
+  // a tap or a click moves on by itself; the keyboard doesn't, so the cards can be browsed with it
+  const pointer = useRef(false);
   return (
-    <fieldset data-invalid={invalid || undefined} className="@container">
+    <fieldset data-invalid={invalid || undefined} className="@container" onPointerDown={() => (pointer.current = true)} onKeyDown={() => (pointer.current = false)}>
       <legend className="sr-only">{TEXT.steps[0].title}</legend>
       <div className="grid grid-cols-2 gap-3 @md:grid-cols-[1.15fr_1fr] @md:grid-rows-[230px_230px] @2xl:gap-4 @4xl:grid-cols-[1.25fr_1fr_1fr] @4xl:grid-rows-[270px_270px]">
         {categories.map((c) => {
@@ -688,7 +753,7 @@ function StepCategory({ uid, value, onPick, invalid }: { uid: string; value: Cat
             <label
               key={c.id}
               data-selected={checked || undefined}
-              onClick={(e) => e.detail > 0 && onPick(c.id, true)}
+              onClick={(e) => (e.detail > 0 || pointer.current) && onPick(c.id, true)}
               className={cx(
                 "group relative isolate cursor-pointer overflow-hidden rounded-[24px] outline-2 outline-offset-[3px] outline-transparent transition-[outline-color] duration-300 [container-type:size]",
                 "data-[selected]:outline-ink has-[:focus-visible]:outline-ink/50",
@@ -991,6 +1056,7 @@ function StepCreams({ uid, category: c, draft, dispatch, errors }: StepProps) {
   const words = TEXT.order;
   const cat = useCatalog();
   const fillings = fillingsOf(cat, c);
+  const coatings = coatingsOf(c);
   const set = (patch: Partial<Draft>) => dispatch({ type: "patch", patch });
   const chosen = draft.colors.filter((id) => id !== SURPRISE);
   return (
@@ -1005,14 +1071,33 @@ function StepCreams({ uid, category: c, draft, dispatch, errors }: StepProps) {
         />
       </Group>
 
-      {fillings.length > 0 && (
-        <Group legend={TEXT.filling}>
-          <p className="t-caption -mt-2 mb-4 text-ink-soft">
-            {TEXT.fillingHint} <span className="text-ink-soft/70">({TEXT.optional})</span>
-          </p>
-          <TastePicker name={`${uid}-filling`} items={fillings} value={draft.filling} onSelect={(id) => set({ filling: id })} exclusions={draft.exclusions} none={TEXT.noFilling} />
-        </Group>
+      <CakeLayers uid={uid} category={c} draft={draft} set={set} fillings={fillings} />
+
+      {coatings.length > 0 && (
+        <fieldset>
+          <legend className="text-[17px] font-medium">{words.labels.coating}</legend>
+          <p className="t-caption mt-1 text-ink-soft">{TEXT.coatingHint}</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {coatings.map((x) => {
+              const on = draft.coating === x.id;
+              const clash = clashOf(x, draft.exclusions, words);
+              return (
+                <label key={x.id} className={cx("flex cursor-pointer items-start gap-3 rounded-[16px] border p-4 transition-colors", on ? "border-ink bg-white/70" : "border-ink/15 hover:border-ink/40")}>
+                  <input type="radio" name={`${uid}-coating`} className="peer sr-only" checked={on} onChange={() => set({ coating: x.id })} />
+                  <span aria-hidden className={cx("mt-1 size-4 shrink-0 rounded-full border peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink", on ? "border-[5px] border-ink" : "border-ink/30")} />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="font-medium">{x.label}</span>
+                    <span className="t-caption text-ink-soft">{x.note}</span>
+                    {clash && <span className="t-caption text-[#8E3524]">{fill(TEXT.notFor, { request: clash.request })}</span>}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
       )}
+
+      <Inspiration uid={uid} category={c} draft={draft} set={set} />
 
       <fieldset>
         <legend className="text-[17px] font-medium">{TEXT.colors}</legend>
@@ -1043,12 +1128,8 @@ function StepCreams({ uid, category: c, draft, dispatch, errors }: StepProps) {
         </div>
       </fieldset>
 
-      <div className="grid gap-8 md:grid-cols-2">
-        <label className="block">
-          <span className="text-[17px] font-medium">{words.labels.idea}</span> <span className="t-caption text-ink-soft">({TEXT.optional})</span>
-          <input value={draft.theme} maxLength={60} onChange={(e) => set({ theme: e.target.value })} placeholder={TEXT.ideaPlaceholder} className={cx(FIELD, "mt-3 h-12")} />
-        </label>
-        <label className="block">
+      <div>
+        <label className="block md:max-w-[50%]">
           <span className="text-[17px] font-medium">{words.labels.message}</span> <span className="t-caption text-ink-soft">({TEXT.optional})</span>
           <input value={draft.message} maxLength={40} onChange={(e) => set({ message: e.target.value })} placeholder={TEXT.messagePlaceholder} className={cx(FIELD, "mt-3 h-12")} />
           <span className="t-caption mt-1.5 block text-ink-soft/80">{`${draft.message.length}/40`}</span>
@@ -1067,12 +1148,350 @@ function StepCreams({ uid, category: c, draft, dispatch, errors }: StepProps) {
   );
 }
 
+type PartProps = { uid: string; category: Category; draft: Draft; set: (patch: Partial<Draft>) => void };
+
+/*
+  מה יש בתוך העוגה: השכבות כמו שהן עומדות, מלמעלה למטה, באותם צבעים כמו בפרוסה שבהדמיה. כל שכבת ספוג
+  וכל רווח בין שתי שכבות הם שורה: לוחצים עליה, ומתחת נפתחת הבחירה שלה. סופרים מלמטה, כמו שבונים עוגה.
+*/
+type LayerPart = { kind: "base" | "gap"; i: number };
+const toneBg = (tone: string | [string, string] | undefined, fallback: string) => (Array.isArray(tone) ? `linear-gradient(90deg, ${tone[0]} 50%, ${tone[1]} 50%)` : (tone ?? fallback));
+const toneHex = (tone: string | [string, string] | undefined, fallback: string) => (Array.isArray(tone) ? tone[0] : (tone ?? fallback));
+
+function CakeLayers({ uid, category: c, draft, set, fillings }: PartProps & { fillings: Filling[] }) {
+  const TEXT = useText();
+  const words = TEXT.order;
+  const cat = useCatalog();
+  const size = sizeOf(c, draft);
+  const range = layersOf(size);
+  const n = layerCount(c, draft);
+  const main = c.bases.find((b) => b.id === draft.base);
+  const sponges = baseSlots(c, draft);
+  const gaps = fillingSlots(cat, c, draft);
+  const cream = draft.cream ? cat.cream[draft.cream] : undefined;
+  const [open, setOpen] = useState<LayerPart | null>(null);
+  const pickRef = useRef<HTMLDivElement>(null);
+  const openKey = open ? `${open.kind}-${open.i}` : null;
+  useEffect(() => {
+    if (!openKey) return;
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    pickRef.current?.scrollIntoView({ block: "start", behavior: still ? "auto" : "smooth" });
+  }, [openKey]);
+
+  // a number cake (two layers of shortbread) and cupcakes: only the filling between, as one choice
+  if (size?.visual.kind === "figure" || size?.visual.kind === "cupcakes") {
+    if (!fillings.length) return null;
+    return (
+      <Group legend={TEXT.filling}>
+        <p className="t-caption -mt-2 mb-4 text-ink-soft">
+          {TEXT.fillingHint} <span className="text-ink-soft/70">({TEXT.optional})</span>
+        </p>
+        <TastePicker name={`${uid}-filling`} items={fillings} value={gaps[0]?.id ?? null} onSelect={(id) => set({ fillings: [id] })} exclusions={draft.exclusions} none={TEXT.noFilling} />
+      </Group>
+    );
+  }
+
+  const part = open && open.i < (open.kind === "base" ? n : n - 1) ? open : null;
+  const counts = Array.from({ length: range.max - range.min + 1 }, (_, i) => range.min + i);
+  const layerBases = (i: number, id: string | null) => Array.from({ length: n }, (_, j) => (j === i ? (id === draft.base ? null : id) : (draft.layerBases[j] ?? null)));
+  const layerFillings = (i: number, id: string | null) => Array.from({ length: n - 1 }, (_, j) => (j === i ? id : (draft.fillings[j] ?? null)));
+  const toggle = (p: LayerPart) => setOpen(part?.kind === p.kind && part.i === p.i ? null : p);
+  const row = (p: LayerPart, swatch: ReactNode, title: string, detail: string, canChoose = true) => {
+    const on = part?.kind === p.kind && part.i === p.i;
+    return (
+      <li key={`${p.kind}-${p.i}`} className={cx(p.kind === "gap" && "border-y border-dashed border-ink/10")}>
+        <button
+          type="button"
+          disabled={!canChoose}
+          aria-expanded={canChoose ? on : undefined}
+          aria-controls={canChoose ? `${uid}-layer-pick` : undefined}
+          onClick={() => toggle(p)}
+          className={cx("flex w-full items-center gap-3.5 px-4 text-start transition-colors disabled:cursor-default", p.kind === "base" ? "py-3.5" : "py-2", on ? "bg-ink/[0.07]" : canChoose && "hover:bg-ink/[0.035]")}
+        >
+          {swatch}
+          <span className="min-w-0 flex-1">
+            <span className={cx("block", p.kind === "base" ? "font-medium" : "text-[15px]")}>{title}</span>
+            <span className="t-caption block text-ink-soft">{detail}</span>
+          </span>
+          {canChoose && <span className={cx("t-caption shrink-0 rounded-full border px-3 py-1", on ? "border-ink bg-ink text-ink-inv" : "border-ink/25")}>{TEXT.choose}</span>}
+        </button>
+      </li>
+    );
+  };
+
+  const creamName = !cream ? TEXT.cream : cream.label.startsWith(TEXT.cream) ? cream.label : `${TEXT.cream} ${cream.label}`;
+  const rows: ReactNode[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const b = sponges[i];
+    const own = !!draft.layerBases[i] && b?.id !== draft.base;
+    const where = i === n - 1 ? ` · ${TEXT.layerTop}` : i === 0 ? ` · ${TEXT.layerBottom}` : "";
+    rows.push(
+      row(
+        { kind: "base", i },
+        <span aria-hidden className="h-10 w-16 shrink-0 rounded-[8px] border border-black/10 shadow-[inset_0_-6px_0_rgba(0,0,0,0.06)]" style={{ background: toneBg(b?.tone, "#E8CB97") }} />,
+        fill(TEXT.layerTab, { n: i + 1 }) + where,
+        own ? b!.label : fill(TEXT.sameAsBase, { base: main?.label ?? "" }),
+      ),
+    );
+    if (i > 0) {
+      const g = i - 1;
+      const f = gaps[g];
+      const creamHex = toneHex(cream?.tone, "#F6EEDF");
+      const fillHex = f ? toneHex(f.tone, creamHex) : creamHex;
+      rows.push(
+        row(
+          { kind: "gap", i: g },
+          <span aria-hidden className="h-3 w-16 shrink-0 rounded-full border border-black/10" style={{ background: `linear-gradient(90deg, ${creamHex} 0 22%, ${fillHex} 22% 78%, ${creamHex} 78%)` }} />,
+          fill(TEXT.gapName, { n: g + 1, next: g + 2 }),
+          f ? `${creamName} + ${f.label}` : `${creamName} (${TEXT.creamOnly})`,
+          fillings.length > 0,
+        ),
+      );
+    }
+  }
+
+  return (
+    <fieldset>
+      <legend className="text-[17px] font-medium">{TEXT.layersTitle}</legend>
+      <p className="t-caption mt-1 text-ink-soft">{TEXT.layersHint}</p>
+      {range.max > range.min && (
+        <div className="mt-4 flex flex-wrap gap-2.5" role="group" aria-label={words.labels.layers}>
+          {counts.map((k) => (
+            <Pill key={k} checked={n === k} onChange={() => set({ layers: k, layerBases: draft.layerBases.slice(0, k), fillings: draft.fillings.slice(0, k - 1) })}>
+              {fill(words.layersText, { n: k })}
+            </Pill>
+          ))}
+        </div>
+      )}
+      <ol className="mt-5 overflow-hidden rounded-[18px] border border-ink/15 bg-white/60">{rows}</ol>
+
+      {part && (
+        <div ref={pickRef} id={`${uid}-layer-pick`} className="mt-4 scroll-mt-28 rounded-[18px] border border-ink bg-white/70 p-4">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="font-medium">{part.kind === "base" ? fill(TEXT.pickBase, { n: part.i + 1 }) : fill(TEXT.pickGap, { n: part.i + 1, next: part.i + 2 })}</p>
+            {n > 2 && (
+              <button
+                type="button"
+                className="t-caption rounded-full border border-ink/25 px-3 py-1.5 hover:border-ink"
+                onClick={() =>
+                  part.kind === "base"
+                    ? set({ base: sponges[part.i]?.id ?? draft.base, layerBases: [] })
+                    : set({ fillings: Array.from({ length: n - 1 }, () => gaps[part.i]?.id ?? null) })
+                }
+              >
+                {part.kind === "base" ? TEXT.sameBase : TEXT.sameFilling}
+              </button>
+            )}
+          </div>
+          {part.kind === "base" ? (
+            <TastePicker
+              name={`${uid}-layer-base-${part.i}`}
+              items={c.bases}
+              value={draft.layerBases[part.i] && draft.layerBases[part.i] !== draft.base ? draft.layerBases[part.i] : null}
+              onSelect={(id) => set({ layerBases: layerBases(part.i, id) })}
+              exclusions={draft.exclusions}
+              none={fill(TEXT.sameAsBase, { base: main?.label ?? "" })}
+            />
+          ) : (
+            <TastePicker name={`${uid}-layer-gap-${part.i}`} items={fillings} value={gaps[part.i]?.id ?? null} onSelect={(id) => set({ fillings: layerFillings(part.i, id) })} exclusions={draft.exclusions} none={TEXT.noFilling} />
+          )}
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+/*
+  הנושא, ומתחתיו גלריה של עוגות שהקונדיטוריה באמת הכינה (רק שלה, ורק צילומים שיש לה זכויות בהם).
+  אפשר לסמן כמה שאהבו, או עוגה אחת "בדיוק כזו" ולומר מה לשמור ומה לשנות. השראה מבחוץ: קישור, או
+  תמונה בוואטסאפ אחרי ההזמנה. אין העלאת קבצים לאתר.
+*/
+function Inspiration({ uid, draft, set }: PartProps) {
+  const TEXT = useText();
+  const words = TEXT.order;
+  const cat = useCatalog();
+  const theme = draft.themeId && isTheme(draft.themeId) ? draft.themeId : null;
+  const shown = theme ? cat.portfolio.filter((p) => p.themes.includes(theme)) : cat.portfolio;
+  const exact = draft.exact ? cat.portfolio.find((p) => p.id === draft.exact) : undefined;
+  const link = draft.link.trim();
+  const linkBad = link !== "" && !isInspirationLink(link);
+  const likedFull = draft.liked.length >= MAX_LIKED;
+  const like = (id: string) =>
+    set({ liked: draft.liked.includes(id) ? draft.liked.filter((x) => x !== id) : likedFull ? draft.liked : [...draft.liked, id] });
+  const pickExact = (id: string) =>
+    set(draft.exact === id ? { exact: null, keep: [], change: "" } : { exact: id, keep: draft.keep.length ? draft.keep : ["all"] });
+  const keep = (k: KeepKey) => {
+    const on = draft.keep.includes(k);
+    if (k === "all") return set({ keep: on ? [] : ["all"] });
+    const rest = draft.keep.filter((x) => x !== "all" && x !== k);
+    set({ keep: on ? rest : [...rest, k] });
+  };
+  return (
+    <div className="space-y-6">
+      <fieldset>
+        <legend className="text-[17px] font-medium">{TEXT.themeQuestion}</legend>
+        <p className="t-caption mt-1 text-ink-soft">
+          {TEXT.themeHint} <span className="text-ink-soft/70">({TEXT.optional})</span>
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {THEMES.map((t) => (
+            <Pill key={t.id} checked={theme === t.id} onChange={() => set({ themeId: theme === t.id ? null : t.id })}>
+              {t.label}
+            </Pill>
+          ))}
+        </div>
+        <label className="mt-4 block md:max-w-[50%]">
+          <span className="sr-only">{words.labels.idea}</span>
+          <input value={draft.theme} maxLength={60} onChange={(e) => set({ theme: e.target.value })} placeholder={TEXT.ideaPlaceholder} className={cx(FIELD, "h-12")} />
+        </label>
+      </fieldset>
+
+      {cat.portfolio.length > 0 && (
+        <section aria-labelledby={`${uid}-gallery`}>
+          <h3 id={`${uid}-gallery`} className="text-[17px] font-medium">
+            {theme ? `${TEXT.galleryTitle}: ${THEMES.find((t) => t.id === theme)?.label}` : TEXT.galleryTitle}
+          </h3>
+          <p className="t-caption mt-1 text-ink-soft">{shown.length ? TEXT.galleryHint : TEXT.galleryEmpty}</p>
+          {shown.length > 0 && (
+            <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {shown.map((p) => {
+                const liked = draft.liked.includes(p.id);
+                const chosen = draft.exact === p.id;
+                return (
+                  <li key={p.id} className={cx("overflow-hidden rounded-[16px] border bg-white/60 transition-colors", chosen ? "border-ink ring-1 ring-ink" : "border-ink/10")}>
+                    <div className="relative aspect-[4/5] bg-blush-soft">
+                      <img src={p.image.src} srcSet={p.image.srcSet} sizes="(min-width: 640px) 30vw, 50vw" alt={p.image.alt} loading="lazy" decoding="async" className="absolute inset-0 size-full object-cover" style={p.image.position ? { objectPosition: p.image.position } : undefined} />
+                      <button
+                        type="button"
+                        aria-pressed={liked}
+                        aria-label={`${TEXT.like}: ${p.title}`}
+                        disabled={!liked && likedFull}
+                        onClick={() => like(p.id)}
+                        className={cx("absolute end-2 top-2 flex size-10 items-center justify-center rounded-full shadow-sm transition-colors disabled:opacity-40", liked ? "bg-ink text-ink-inv" : "bg-white/90 text-ink hover:bg-white")}
+                      >
+                        <Heart filled={liked} />
+                      </button>
+                    </div>
+                    <div className="space-y-2 p-3">
+                      <p className="t-caption leading-snug">{p.title}</p>
+                      <button
+                        type="button"
+                        aria-pressed={chosen}
+                        onClick={() => pickExact(p.id)}
+                        className={cx("flex min-h-10 w-full items-center justify-center gap-1.5 rounded-full border px-3 text-[14px] font-medium transition-colors", chosen ? "border-ink bg-ink text-ink-inv" : "border-ink/25 hover:border-ink")}
+                      >
+                        {chosen && <Check size={12} />}
+                        {TEXT.exactPick}
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {exact && (
+        <div className="space-y-4 rounded-[16px] border border-ink/15 bg-white/60 p-4">
+          <p className="font-medium">{fill(words.exact, { title: exact.title })}</p>
+          <fieldset>
+            <legend className="text-[15px] text-ink-soft">{TEXT.keepQuestion}</legend>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {KEEP_KEYS.map((k) => (
+                <Pill key={k} checked={draft.keep.includes(k)} onChange={() => keep(k)}>
+                  {words.keepWords[k]}
+                </Pill>
+              ))}
+            </div>
+          </fieldset>
+          <label className="block">
+            <span className="text-[15px] text-ink-soft">{TEXT.changeLabel}</span>
+            <input value={draft.change} maxLength={300} onChange={(e) => set({ change: e.target.value })} placeholder={TEXT.changePlaceholder} className={cx(FIELD, "mt-2 h-12")} />
+          </label>
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="block">
+          <span className="text-[15px] font-medium">{words.labels.link}</span> <span className="t-caption text-ink-soft">({TEXT.optional})</span>
+          <input
+            type="url"
+            inputMode="url"
+            dir="ltr"
+            value={draft.link}
+            maxLength={300}
+            onChange={(e) => set({ link: e.target.value })}
+            placeholder="https://"
+            aria-invalid={linkBad || undefined}
+            aria-describedby={`${uid}-link-hint`}
+            className={cx(FIELD, "mt-2 h-12", linkBad && "border-[#8E3524]")}
+          />
+          <span id={`${uid}-link-hint`} className={cx("t-caption mt-1.5 block", linkBad ? "text-[#8E3524]" : "text-ink-soft/80")}>
+            {linkBad ? TEXT.linkError : TEXT.linkHint}
+          </span>
+        </label>
+        <p className="flex items-start gap-2.5 self-center rounded-[16px] bg-blush-soft p-4 text-[15px] leading-snug">
+          <span className="mt-0.5 shrink-0 text-[#1F8F4E]">
+            <WhatsAppIcon size={20} />
+          </span>
+          {TEXT.imageByWhatsapp}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function Heart({ filled }: { filled: boolean }) {
+  return (
+    <svg aria-hidden viewBox="0 0 24 24" className="size-5" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+      <path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z" />
+    </svg>
+  );
+}
+
+/** איור קטן לכל סגנון זילוף, לפי המקום שלו ברשימה (PIPING_STYLES) */
+function PipingArt({ style }: { style: PipingStyle }) {
+  const edge = <path d="M4 30h56" stroke="currentColor" strokeOpacity=".25" strokeWidth="1.5" />;
+  const row = (draw: (x: number) => ReactNode, step = 8) => Array.from({ length: Math.floor(48 / step) + 1 }, (_, i) => draw(8 + i * step));
+  const art: Record<PipingStyle, ReactNode> = {
+    shells: row((x) => <path key={x} d={`M${x - 4} 30c0-6 4-9 8-9-2 2-3 5-4 9`} fill="currentColor" />),
+    pearls: row((x) => <circle key={x} cx={x} cy={26} r={3.6} fill="currentColor" />),
+    rosettes: row((x) => <path key={x} d={`M${x} 26m-5 0a5 5 0 1 0 10 0a5 5 0 1 0-10 0m3 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0`} fill="none" stroke="currentColor" strokeWidth="1.8" />, 12),
+    vintage: (
+      <>
+        {row((x) => <path key={x} d={`M${x - 4} 18c0-5 4-7 8-7-2 2-3 4-4 7`} fill="currentColor" />)}
+        <path d="M6 20q10 14 20 0q10 14 20 0q8 12 14 2" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="0.1 4.2" strokeLinecap="round" />
+      </>
+    ),
+    drip: (
+      <>
+        <path d="M4 14h56" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+        {[[9, 22], [17, 30], [26, 20], [35, 34], [44, 24], [53, 29]].map(([x, y]) => (
+          <path key={x} d={`M${x} 14v${y - 17}`} stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" />
+        ))}
+      </>
+    ),
+    stars: row((x) => <path key={x} d={`m${x} 19 1.8 4.3 4.6.4-3.5 3 1.1 4.5-4-2.5-4 2.5 1.1-4.5-3.5-3 4.6-.4Z`} fill="currentColor" />),
+  };
+  return (
+    <svg aria-hidden viewBox="0 0 64 36" className="h-9 w-16">
+      {style !== "drip" && edge}
+      {art[style]}
+    </svg>
+  );
+}
+
+/** בעוגת גן ובעוגה מעוצבת דף הסוכר המודפס הוא מה שעושה את העוגה: הוא ראשון ומסומן */
+const FEATURED_ADDON: Partial<Record<CategoryId, string>> = { kindergarten: "ediblePrint", designer: "ediblePrint" };
+
 /* התוספות שהסוג הזה מציע: כל אחת נבחרת בלחיצה, ואז נפתחים הפרטים שלה (סוג, צבע, כמות, טקסט) */
 function Addons({ uid, category: c, draft, dispatch }: { uid: string; category: Category; draft: Draft; dispatch: (a: Action) => void }) {
   const TEXT = useText();
   const words = TEXT.order;
   const cat = useCatalog();
-  const offered = addonsFor(cat, c.id);
+  const featured = FEATURED_ADDON[c.id];
+  const offered = [...addonsFor(cat, c.id)].sort((a, b) => Number(b.key === featured) - Number(a.key === featured));
   if (!offered.length) return null;
   const full = draft.addons.length >= MAX_ADDONS;
   return (
@@ -1087,7 +1506,14 @@ function Addons({ uid, category: c, draft, dispatch }: { uid: string; category: 
           const set = (patch: Partial<AddonPick>) => dispatch({ type: "addonPatch", key: a.key, patch });
           const id = `${uid}-addon-${a.key}`;
           return (
-            <div key={a.key} className={cx("rounded-[16px] border transition-colors", p ? "border-ink bg-white/70" : "border-ink/15 hover:border-ink/40", p && (a.options.length > 1 || a.colorable || a.quantity || a.textMax > 0) && "md:col-span-2")}>
+            <div
+              key={a.key}
+              className={cx(
+                "rounded-[16px] border transition-colors",
+                p ? "border-ink bg-white/70" : a.key === featured ? "border-ink/40 bg-blush-soft hover:border-ink/60" : "border-ink/15 hover:border-ink/40",
+                (a.key === featured || (p && (a.options.length > 1 || a.colorable || a.quantity || a.textMax > 0))) && "md:col-span-2",
+              )}
+            >
               <label className={cx("flex cursor-pointer items-start gap-3 p-4", !p && full && "cursor-not-allowed opacity-50")}>
                 <input type="checkbox" className="peer sr-only" checked={!!p} disabled={!p && full} onChange={() => dispatch({ type: "addon", addon: a })} />
                 <span
@@ -1097,6 +1523,7 @@ function Addons({ uid, category: c, draft, dispatch }: { uid: string; category: 
                   {p && <Check size={12} />}
                 </span>
                 <span className="flex flex-col gap-0.5">
+                  {a.key === featured && <span className="t-caption w-fit rounded-full bg-ink px-2.5 py-0.5 text-ink-inv">{TEXT.addonFeatured}</span>}
                   <span className="font-medium">{a.title}</span>
                   {a.description && <span className="t-caption text-ink-soft">{a.description}</span>}
                 </span>
@@ -1107,14 +1534,18 @@ function Addons({ uid, category: c, draft, dispatch }: { uid: string; category: 
                   {a.options.length > 1 && (
                     <fieldset className="md:col-span-2">
                       <legend className="sr-only">{a.title}</legend>
-                      <div className="flex flex-wrap gap-2">
-                        {a.options.map((o) => (
+                      <div className={a.key === "piping" ? "grid grid-cols-2 gap-2 sm:grid-cols-3" : "flex flex-wrap gap-2"}>
+                        {a.options.map((o, i) => (
                           <label
                             key={o.id}
                             data-selected={p.option === o.id || undefined}
-                            className="cursor-pointer rounded-full border border-ink/15 bg-white/55 px-4 py-2 text-[15px] transition-colors hover:border-ink/40 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink data-[selected]:border-ink data-[selected]:bg-ink data-[selected]:text-ink-inv"
+                            className={cx(
+                              "cursor-pointer border border-ink/15 bg-white/55 text-[15px] transition-colors hover:border-ink/40 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink data-[selected]:border-ink data-[selected]:bg-ink data-[selected]:text-ink-inv",
+                              a.key === "piping" ? "flex flex-col items-center gap-1 rounded-[14px] px-2 pt-2 pb-2.5 text-center" : "rounded-full px-4 py-2",
+                            )}
                           >
                             <input type="radio" name={`${id}-option`} value={o.id} checked={p.option === o.id} onChange={() => set({ option: o.id })} className="sr-only" />
+                            {a.key === "piping" && PIPING_STYLES[i] && <PipingArt style={PIPING_STYLES[i]} />}
                             {o.label}
                           </label>
                         ))}

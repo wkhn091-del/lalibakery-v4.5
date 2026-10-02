@@ -5,10 +5,10 @@
 
 /* ---------- טוקנים ---------- */
 @theme {
-  --color-surface: #FCF8F5;       /* ווניל: לבן חם עם נגיעה ורודה */
+  --color-surface: #ECCDCD;       /* ורוד פודרה, הצבע שהלקוח בחר */
   --color-surface-deep: #3D2B22;  /* גנאש שוקולד */
   --color-ink: #2F221C;           /* קקאו כהה */
-  --color-ink-soft: #7C6B62;
+  --color-ink-soft: #5E4A43;
   --color-accent: #C08F45;        /* קרמל-זהב של הבסיסים והאותיות */
   --color-ink-inv: #FBF3EE;
   --color-blush: #EACACB;         /* הוורוד של הלוגו */
@@ -18,10 +18,10 @@
 }
 
 :root {
-  --surface: #FCF8F5;
+  --surface: #ECCDCD;
   --surface-deep: #3D2B22;
   --ink: #2F221C;
-  --ink-soft: #7C6B62;
+  --ink-soft: #5E4A43;
   --accent: #C08F45;
   --ink-inv: #FBF3EE;
   --ink-inv-soft: #B7A79E;
@@ -32,9 +32,9 @@
   --cream-rgb: 251, 243, 238;
 
   /* ערכים חיים. BackgroundShift מזיז אותם במעבר לסקשן המנגנון. */
-  --bg: #FCF8F5;
+  --bg: #ECCDCD;
   --fg: #2F221C;
-  --fg-soft: #7C6B62;
+  --fg-soft: #5E4A43;
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
@@ -139,18 +139,22 @@ img { display: block; max-width: 100%; }
   object-fit: cover;
   object-position: 50% 55%;
 }
+/* הסטודיו ורוד והטקסט כהה; הצעיף הבהיר שומר על הטקסט קריא כשהעוגה עוברת מאחוריו */
+.hero { --hero-veil-rgb: 236, 205, 205; --hero-ink: var(--ink); --hero-ink-soft: var(--ink-soft); }
 .hero-scrim {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, rgba(var(--choc-rgb), 0.86) 0%, rgba(var(--choc-rgb), 0.6) 40%, rgba(var(--choc-rgb), 0) 72%);
+  background: linear-gradient(to top, rgba(var(--hero-veil-rgb), 0.9) 0%, rgba(var(--hero-veil-rgb), 0.62) 40%, rgba(var(--hero-veil-rgb), 0) 72%);
 }
 @media (min-width: 768px) {
   .hero-scrim {
     background:
-      linear-gradient(to left, rgba(var(--choc-rgb), 0.84) 0%, rgba(var(--choc-rgb), 0.6) 34%, rgba(var(--choc-rgb), 0) 62%),
-      linear-gradient(to top, rgba(var(--choc-rgb), 0.4) 0%, rgba(var(--choc-rgb), 0) 40%);
+      linear-gradient(to left, rgba(var(--hero-veil-rgb), 0.86) 0%, rgba(var(--hero-veil-rgb), 0.6) 34%, rgba(var(--hero-veil-rgb), 0) 62%),
+      linear-gradient(to top, rgba(var(--hero-veil-rgb), 0.4) 0%, rgba(var(--hero-veil-rgb), 0) 40%);
   }
 }
+/* בלי תלת־ממד מוצג הצילום (כהה): שם הצעיף שוקולד והטקסט בהיר, כמו קודם */
+.hero[data-3d="off"] { --hero-veil-rgb: var(--choc-rgb); --hero-ink: var(--ink-inv); --hero-ink-soft: var(--ink-inv-soft); }
 .hero-header {
   position: absolute;
   inset-inline: var(--gutter);
@@ -159,7 +163,7 @@ img { display: block; max-width: 100%; }
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: var(--ink-inv);
+  color: var(--hero-ink);
 }
 .hero-logo { width: 72px; height: 72px; }
 @media (min-width: 1024px) { .hero-logo { width: 96px; height: 96px; } }
@@ -170,30 +174,31 @@ img { display: block; max-width: 100%; }
   inset-inline-end: var(--gutter);
   bottom: clamp(36px, 10vh, 120px);
   max-width: 760px;
-  color: var(--ink-inv);
+  color: var(--hero-ink);
 }
-.hero-sub { margin-top: 20px; max-width: 34ch; color: var(--ink-inv); }
+.hero-sub { margin-top: 20px; max-width: 34ch; color: var(--hero-ink); }
 .hero-actions { margin-top: 32px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; }
-.hero-trust { color: var(--ink-inv-soft); }
+.hero-trust { color: var(--hero-ink-soft); }
+.hero-note { flex-basis: 100%; margin-top: -6px; }
+.hero-pause {
+  position: absolute; z-index: 3; inset-inline-end: var(--gutter, 20px); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding-inline: 12px;
+  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--hero-ink) 22%, transparent);
+  background: rgba(var(--hero-veil-rgb), 0.7); color: var(--hero-ink); font-size: 14px; cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.hero-pause:hover { background: rgba(var(--hero-veil-rgb), 0.92); }
+.hero[data-3d="off"] .hero-pause { display: none; }
+@media (prefers-reduced-motion: reduce) { .hero-pause { display: none; } }
 @media (min-width: 1024px) {
   .hero-copy { inset-inline-start: 14vw; bottom: 12vh; }
   .hero-header { inset-inline: 12vw; top: 10vh; }
 }
 
 /* ---------- HERO 3D ---------- */
-/* הבמה נעוצה (sticky, כמו במנגנון) בזמן שהסקשן גולל, כך שיש לעוגה זמן להיבנות, גם במובייל.
-   אורך ההרכבה: --hero-assembly. מי שביקש פחות תנועה מקבל את הגובה המקורי ועוגה שלמה. */
-.hero { --hero-assembly: 240svh; }
+/* העוגה נבנית לבד בזמן (Hero.tsx), ולכן ה-hero בגובה מסך אחד: אף אחד לא צריך לגלול כדי לראות אותה.
+   בלי תלת־ממד (אין WebGL 2, או שנכשל: data-3d="off") מוצגת התמונה. */
 .hero-stage { position: sticky; top: 0; height: 100svh; min-height: 600px; }
-@media (prefers-reduced-motion: no-preference) {
-  .js .hero { height: calc(100svh + var(--hero-assembly)); }
-}
-/* בלי תלת־ממד (אין WebGL 2, או שנכשל: data-3d="off") ה-hero חוזר להיות בדיוק מה שהיה:
-   התמונה, ובדסקטופ הכרטיס הנעוץ לאורך 80% מסך, כמו ה-pin המקורי. */
-.hero[data-3d="off"] { --hero-assembly: 0px; }
-@media (min-width: 1024px) {
-  .hero[data-3d="off"] { --hero-assembly: 80svh; }
-}
 /* הקנבס יושב מתחת ל-scrim, ונכנס בעדינות ברגע שהפריים הראשון מוכן. עד אז הרקע הזה מצייר את הסטודיו של
    הסצנה: אותם צבעים (hero3d/config.ts), והאור בדיוק איפה שהסצנה תצייר אותו (HeroCanvas מעדכן את
    המיקומים לפי הפריסה; אלה ברירות המחדל עד שהוא רץ). כך העוגה נכנסת בלי שהרקע יזוז.
@@ -210,9 +215,9 @@ img { display: block; max-width: 100%; }
   background:
     radial-gradient(ellipse farthest-corner at 50% 50%, transparent 63%, rgb(0 0 0 / 0.015) 73%, rgb(0 0 0 / 0.055) 84%, rgb(0 0 0 / 0.13) 100%),
     radial-gradient(ellipse calc(2.35 * var(--studio-h)) calc(0.286 * var(--studio-h)) at var(--studio-floor-x) calc(var(--studio-floor-y) + 5.4%),
-      rgb(141 99 82 / 0.45) 0%, rgb(141 99 82 / 0.31) 35%, rgb(141 99 82 / 0.11) 70%, rgb(141 99 82 / 0) 100%),
+      rgb(196 150 151 / 0.45) 0%, rgb(196 150 151 / 0.31) 35%, rgb(196 150 151 / 0.11) 70%, rgb(196 150 151 / 0) 100%),
     radial-gradient(circle calc(1.25 * var(--studio-h)) at var(--studio-glow-x) var(--studio-glow-y),
-      #6d4b3e 0%, #6c4a3d 10%, #68483b 20%, #634437 30%, #5a3d32 42%, #4d342a 55%, #3d2920 70%, #2d1d15 85%, #24170f 100%);
+      #f4e0df 0%, #f3dedd 10%, #f1dbda 20%, #efd7d7 30%, #ecd2d2 42%, #e8cbcb 55%, #e2c2c2 70%, #dbb8b8 85%, #d6b1b1 100%);
 }
 .js .hero-poster { opacity: 0; transition: opacity 600ms var(--ease-out); }
 .js .hero[data-3d="off"] .hero-poster { opacity: 1; }
@@ -387,15 +392,19 @@ img { display: block; max-width: 100%; }
   z-index: 50;
   inset-inline-end: 20px;
   bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-  width: 56px;
-  height: 56px;
+  height: 52px;
+  padding-inline: 16px 18px;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
   border-radius: 999px;
   background: var(--surface-deep);
   color: var(--ink-inv);
   border: 1px solid rgba(var(--cream-rgb), 0.18);
   box-shadow: var(--shadow-float);
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
   transform: translateY(calc(100% + 56px));
   opacity: 0;
   transition: transform 250ms var(--ease-out), opacity 200ms var(--ease-out);
@@ -479,7 +488,12 @@ img { display: block; max-width: 100%; }
 }
 .header-phone-text { display: none; }
 @media (min-width: 640px) { .header-phone-text { display: inline; } }
-@media (min-width: 1024px) { .site-nav { display: flex; } .nav-order { display: none; } }
+.nav-order {
+  display: inline-flex; align-items: center; height: 40px; padding-inline: 16px; white-space: nowrap;
+  border-radius: var(--r-btn); background: var(--ink); color: var(--ink-inv); font-weight: 500;
+}
+.nav-order:hover { text-decoration: none; background: color-mix(in srgb, var(--ink) 88%, white); }
+@media (min-width: 1024px) { .site-nav { display: flex; } }
 
 /* ---------- פוטר ---------- */
 .site-footer { color: var(--ink-inv); }

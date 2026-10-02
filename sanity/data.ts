@@ -1,13 +1,13 @@
 import "server-only";
 import type { ProofItem } from "@/components/sections/Proof";
-import { type Category, type CategoryId, type Cream, type Filling, type Flavour, type Size, type SizeVisual, TASTE_GROUPS, type TasteGroup, type TileImage, type WizardCatalog } from "@/lib/order/model";
+import { type Category, type CategoryId, type Cream, type Filling, type Flavour, isTheme, type PortfolioItem, type Size, type SizeVisual, TASTE_GROUPS, type TasteGroup, type TileImage, type WizardCatalog } from "@/lib/order/model";
 import { priceText } from "@/lib/price";
 import { clean, splitStega } from "@/lib/stega";
 import { getSettings } from "./content";
 import { isSanityConfigured } from "./env";
 import { loadOrNull, sanityFetch } from "./fetch";
 import { type CmsImage, cmsImage } from "./image";
-import { catalogQuery, galleryQuery } from "./queries";
+import { catalogQuery, galleryQuery, portfolioQuery } from "./queries";
 import { toneHex } from "./tones";
 
 // The site's content from the CMS, in exactly the shapes the components already render.
@@ -72,6 +72,32 @@ export async function getGallery(): Promise<ProofItem[] | null> {
     return null;
   }
   return items;
+}
+
+/* ───────── the cake builder's gallery of inspiration ───────── */
+
+type PortfolioDoc = { _id: string; name?: string; description?: string; themes?: string[] | null; image?: CmsImage };
+const PORTFOLIO_LIMIT = 60;
+
+/** The owner's own cakes for the builder's gallery; null (the built-in photos) until there's one */
+export async function getPortfolio(): Promise<PortfolioItem[] | null> {
+  if (!isSanityConfigured) return null;
+  const docs = await loadOrNull("the builder's gallery", () => sanityFetch<PortfolioDoc[]>(portfolioQuery, { limit: PORTFOLIO_LIMIT }));
+  if (!docs) return null;
+  const items = docs.flatMap((doc): PortfolioItem[] => {
+    const img = doc.image && cmsImage(doc.image, [320, 480, 640, 800]);
+    if (!img || !doc.name) return [];
+    const title = [doc.name, doc.description].map((s) => s?.trim().replace(/[.\s]+$/, "")).filter(Boolean).join(". ");
+    return [
+      {
+        id: doc._id,
+        title,
+        image: { src: img.src, srcSet: img.srcSet, alt: doc.image?.alt || doc.name, position: img.position },
+        themes: clean(doc.themes ?? []).filter(isTheme),
+      },
+    ];
+  });
+  return items.length ? items : null;
 }
 
 /* ───────── the cake wizard's catalog ───────── */

@@ -8,7 +8,7 @@ import WhatsAppIcon from "./WhatsAppIcon";
 export default function FloatingCta({ href, label }: { href: string; label: string }) {
   const [show, setShow] = useState(false);
   useEffect(() => {
-    const ids = ["hero", "start-cta", "closing", "contact"];
+    const ids = ["hero", "proof-cta", "start-cta", "closing", "contact"];
     const els = ids.map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[];
     if (!els.length) return;
     const visible = new Map<Element, boolean>();
@@ -31,10 +31,9 @@ export default function FloatingCta({ href, label }: { href: string; label: stri
       data-show={show ? "" : undefined}
       tabIndex={show ? 0 : -1}
       aria-hidden={!show}
-      aria-label={label}
-      title={label}
     >
-      <WhatsAppIcon size={26} />
+      <WhatsAppIcon size={22} />
+      <span>{label}</span>
     </a>
   );
 }

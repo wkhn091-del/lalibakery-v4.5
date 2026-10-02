@@ -22,10 +22,10 @@ export const ASSETS = {
   },
 } as const;
 
-/** The studio backdrop behind the cake: warm cocoa where the light falls, deep ganache at the edges.
+/** The studio backdrop behind the cake: pale powder pink where the light falls, deeper rose at the edges.
  *  These are the colours on screen, on every tier. (The loading background in globals.css paints
  *  the same studio until the first frame: change them together.) */
-export const BACKDROP = { centre: "#6d4b3e", edge: "#24170f", floor: "#8a6150" } as const;
+export const BACKDROP = { centre: "#f4e0df", edge: "#d6b1b1", floor: "#c49697" } as const;
 
 /** The lens vignette (Effects.tsx); the backdrop carries the same one on the tiers without effects */
 export const VIGNETTE = { offset: 0.32, darkness: 0.3 } as const;

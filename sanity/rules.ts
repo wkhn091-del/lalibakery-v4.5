@@ -44,7 +44,7 @@ export const SETTINGS_RULES: Rules = {
 };
 
 export const HOME_RULES: Rules = {
-  optional: ["hero.trust", "mechanism.steps[].note", "proof.stats[].suffix", "proof.stats[].todo"],
+  optional: ["hero.ctaNote", "hero.trust", "mechanism.steps[].note", "proof.stats[].suffix", "proof.stats[].todo"],
   length: {
     "hero.lines": [1, 3],
     "failed.items": [1, 12],

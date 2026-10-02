@@ -17,7 +17,7 @@ export const ADDONS = [
   { key: "fruit", title: "תותים ופירות" },
   { key: "topper", title: "טופר" },
   { key: "sugarFigure", title: "דמות מבצק סוכר" },
-  { key: "ediblePrint", title: "הדפס תמונה אכילה" },
+  { key: "ediblePrint", title: "דף סוכר מודפס בעיצוב אישי" },
   { key: "candles", title: "נרות ונצנצים" },
   { key: "inscription", title: "כיתוב" },
 ] as const;
@@ -44,7 +44,12 @@ export const ADDON_SEEDS: Record<
     imageByWhatsapp?: boolean;
   }
 > = {
-  piping: { description: "עיטור קרם מזולף סביב העוגה", categories: ["designer", "birthday", "number"], colorable: true },
+  piping: {
+    description: "עיטור קרם מזולף סביב העוגה, בסגנון שתבחרו",
+    categories: ["designer", "birthday", "number"],
+    options: ["צדפים", "פנינים", "שושנים", "רישות וינטג'", "טפטוף (דריפ)", "כוכבים"],
+    colorable: true,
+  },
   flowers: { description: "זר פרחים על העוגה", categories: ["designer", "birthday", "number"], options: ["פרחים טריים", "פרחי סוכר"], colorable: true },
   goldLeaf: { description: "עלי זהב אכילים", categories: ["designer", "birthday", "number"] },
   macarons: { description: "מקרונים על העוגה", categories: ["designer", "birthday", "number"], colorable: true, quantity: [3, 12] },
@@ -52,8 +57,8 @@ export const ADDON_SEEDS: Record<
   topper: { description: "שלט קישוט מעל העוגה", categories: ["designer", "birthday", "number", "kindergarten"], text: 30 },
   sugarFigure: { description: "דמות בעבודת יד מבצק סוכר", categories: ["designer", "birthday", "kindergarten"], text: 120 },
   ediblePrint: {
-    description: "תמונה שלכם מודפסת על דף אכיל. את התמונה שולחים בוואטסאפ אחרי ההזמנה",
-    categories: ["birthday", "kindergarten", "number"],
+    description: "דף סוכר מודפס בעיצוב שלכם: תמונה, דמות אהובה או לוגו הגן. את התמונה שולחים בוואטסאפ אחרי ההזמנה",
+    categories: ["kindergarten", "designer", "birthday", "number"],
     imageByWhatsapp: true,
   },
   candles: { description: "נרות ונצנצים לעוגה", categories: ["designer", "birthday", "number", "kindergarten"], options: ["נרות", "נר מספר", "נצנצים"] },

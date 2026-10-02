@@ -57,9 +57,9 @@ export default function Start({ c }: { c: HomeContent["start"] }) {
             </li>
           ))}
         </ol>
-        {/* באותו סגנון כמו כפתורי האירועים ב"מה כבר ניסיתם", ובמרכז, מתחת לרשימה ובאותו רוחב שלה */}
-        <div id="start-cta" className="chips mt-14 max-w-[44rem] justify-center">
-          <a href={ORDER_PAGE} className="chip chip-lg">
+        {/* כפתור ההזמנה, בסגנון היחיד שמסמן "הזמנה" באתר, במרכז, מתחת לרשימה ובאותו רוחב שלה */}
+        <div id="start-cta" className="mt-14 flex max-w-[44rem] justify-center">
+          <a href={ORDER_PAGE} className="btn-primary">
             {c.cta}
           </a>
         </div>

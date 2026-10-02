@@ -11,6 +11,13 @@ import { useRef } from "react";
 import type { HomeContent } from "@/lib/content/types";
 import { gsap, useGSAP, MQ, EASE_OUT } from "@/lib/gsap";
 import { ORDER_PAGE } from "@/lib/routes";
+import { THEMES } from "@/studio/themes";
+
+/** an event that is one of the builder's themes opens it with that theme already chosen */
+function hrefOf(event: string) {
+  const theme = THEMES.find((t) => t.label === event.trim());
+  return theme ? `${ORDER_PAGE}?theme=${theme.id}` : ORDER_PAGE;
+}
 
 export default function Failed({ c }: { c: HomeContent["failed"] }) {
   const root = useRef<HTMLElement>(null);
@@ -56,7 +63,7 @@ export default function Failed({ c }: { c: HomeContent["failed"] }) {
           <p className="t-lead mt-10">{c.question}</p>
           <div className="chips mt-5">
             {c.events.map((e, i) => (
-              <a key={i} href={ORDER_PAGE} className="chip chip-lg">
+              <a key={i} href={hrefOf(e)} className="chip chip-lg">
                 {e}
               </a>
             ))}

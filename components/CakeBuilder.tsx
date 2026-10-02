@@ -4,7 +4,7 @@ import { linksOf } from "@/lib/content/contact";
 import { BUILT_IN_CATALOG as BUILT_IN } from "@/lib/order/model";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCakePage, getSettings } from "@/sanity/content";
-import { getCatalog } from "@/sanity/data";
+import { getCatalog, getPortfolio } from "@/sanity/data";
 import { getWizardAddons } from "@/sanity/shop";
 
 /*
@@ -21,10 +21,10 @@ import { getWizardAddons } from "@/sanity/shop";
   <CustomCakeWizard catalog={…} text={…} whatsapp={…} onAddToCart={…} />.
 */
 export default async function CakeBuilder({ className }: { className?: string }) {
-  const [catalog, addons, page, settings] = await Promise.all([getCatalog(), getWizardAddons(), getCakePage(), getSettings()]);
+  const [catalog, addons, portfolio, page, settings] = await Promise.all([getCatalog(), getWizardAddons(), getPortfolio(), getCakePage(), getSettings()]);
   return (
     <CustomCakeWizard
-      catalog={catalog ? { ...catalog, addons } : { ...BUILT_IN, addons }}
+      catalog={{ ...(catalog ?? BUILT_IN), addons, ...(portfolio ? { portfolio } : {}) }}
       text={page.wizard}
       whatsapp={linksOf(settings.business).whatsapp}
       onRequest={supabaseAdmin() ? sendCakeRequest : undefined}

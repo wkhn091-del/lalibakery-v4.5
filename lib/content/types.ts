@@ -73,7 +73,7 @@ export type SiteSettings = {
 };
 
 export type HomeContent = {
-  hero: { lines: string[]; sub: string; cta: string; trust: string; imageAlt: string; inscription: string };
+  hero: { lines: string[]; sub: string; cta: string; ctaNote: string; trust: string; imageAlt: string; inscription: string; pause: string; play: string };
   pain: { label: string; paragraph: string; imageAlt: string; caption: string };
   failed: { title: string; items: string[]; conclusion: string; question: string; events: string[] };
   mechanism: {
@@ -89,6 +89,8 @@ export type HomeContent = {
     stats: { value: number | null; suffix: string; label: string; todo: string }[];
     occasionsLabel: string;
     occasions: string[];
+    /** the button under the gallery, to the cake builder */
+    cta: string;
   };
   deliverables: { title: string; imageAlt: string; caption: string; items: { outcome: string; part: string }[] };
   start: { title: string; steps: { who: string; what: string; when: string }[]; cta: string };
@@ -123,6 +125,42 @@ export type WizardText = {
   filling: string;
   fillingHint: string;
   noFilling: string;
+  layersHint: string;
+  sameFilling: string;
+  /** "שכבה {n}" */
+  layerTab: string;
+  coatingHint: string;
+  /** the cake's layers, drawn top to bottom as they stand: each sponge and each gap is a row to tap */
+  layersTitle: string;
+  layerTop: string;
+  layerBottom: string;
+  /** "כמו הבסיס ({base})" */
+  sameAsBase: string;
+  /** "בין שכבה {n} ל-{next}" */
+  gapName: string;
+  creamOnly: string;
+  choose: string;
+  /** "איזה ספוג בשכבה {n}?" */
+  pickBase: string;
+  /** "מה יהיה בין שכבה {n} ל-{next}?" */
+  pickGap: string;
+  sameBase: string;
+  /** the theme question, and the gallery of the bakery's own cakes under it */
+  themeQuestion: string;
+  themeHint: string;
+  galleryTitle: string;
+  galleryHint: string;
+  galleryEmpty: string;
+  like: string;
+  exactPick: string;
+  keepQuestion: string;
+  changeLabel: string;
+  changePlaceholder: string;
+  linkHint: string;
+  linkError: string;
+  imageByWhatsapp: string;
+  /** on an add-on that suits this cake best (the sugar sheet on a kindergarten or designer cake) */
+  addonFeatured: string;
   /** the tabs over a long list of bases, creams and fillings */
   groups: { all: string; classic: string; chocolate: string; fruity: string; nutty: string; sweets: string; special: string };
   colors: string;

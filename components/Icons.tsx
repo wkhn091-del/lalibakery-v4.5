@@ -23,3 +23,9 @@ export const TikTokIcon = ({ size = 20 }: P) => (
 export const ArrowUpIcon = ({ size = 16 }: P) => (
   <svg {...base(size)}><path d="M12 19V5M6 11l6-6 6 6" /></svg>
 );
+export const PauseIcon = ({ size = 14 }: P) => (
+  <svg {...base(size)}><path d="M9 5v14M15 5v14" /></svg>
+);
+export const PlayIcon = ({ size = 14 }: P) => (
+  <svg {...base(size)}><path d="M8 5.5v13l10-6.5-10-6.5Z" fill="currentColor" /></svg>
+);

@@ -21,6 +21,20 @@ export const galleryQuery = /* groq */ `
 `;
 
 /**
+ * The cake builder's gallery of inspiration: only cakes the owner confirmed are her own work, with
+ * their own photo (ownWork), in her order; capped so a long list can't weigh down the builder.
+ */
+export const portfolioQuery = /* groq */ `
+  *[_type == "cake" && inBuilder != false && ownWork == true && defined(image.asset)] | order(orderRank asc) [0...$limit] {
+    _id,
+    name,
+    description,
+    themes,
+    "image": image${image}
+  }
+`;
+
+/**
  * The cake builder's four cake types (fixed documents, $ids), each with its sizes, bases and
  * creams. The order is the builder's own (data.ts), not the owner's: its tile grid depends on it.
  */

@@ -3,7 +3,7 @@ import { useFrame, useLoader } from "@react-three/fiber";
 import * as THREE from "three";
 import { type Font, FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
 import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
-import { type CakeSpec, drawable, extentOf, type PreviewAddon, type PreviewShape, visualOrder } from "@/lib/order/preview";
+import { type CakeSpec, drawable, extentOf, type PipingStyle, type PreviewAddon, type PreviewShape, visualOrder } from "@/lib/order/preview";
 import { shellGeometry } from "../hero3d/cakeParts";
 import { patchMaterial } from "../hero3d/materials";
 import { easeOutBack } from "../hero3d/timeline";
@@ -17,6 +17,8 @@ import {
   type CutFace,
   cutFaces,
   cupcakeDomeGeometry,
+  dripDropGeometry,
+  dripStemGeometry,
   figureLayerGeometry,
   figureShapes,
   flameGeometry,
@@ -34,6 +36,7 @@ import {
   rectBoardGeometry,
   rng,
   roseGeometry,
+  rosetteGeometry,
   roundCakeGeometry,
   roundEdge,
   shadowTexture,
@@ -75,6 +78,25 @@ const creamMaterial = (hex: string) => {
     subsurface: { color: "#ffe6d6", scale: 0.35, ambient: 0.04 },
   });
 };
+const GANACHE = "#4A2C1E";
+/** the outside, by what covers it: the colour is the design's, the coating sets the finish */
+function coatingMaterial(spec: CakeSpec): THREE.Material {
+  switch (spec.coating) {
+    case "whipped":
+      return new THREE.MeshStandardMaterial({ color: spec.coat, roughness: 0.82 });
+    case "ganache":
+      // ganache is chocolate: dark unless a colour was chosen for the design
+      return new THREE.MeshPhysicalMaterial({ color: spec.coat === spec.cream ? GANACHE : spec.coat, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.08 });
+    case "fondant":
+      return new THREE.MeshPhysicalMaterial({ color: spec.coat, roughness: 0.42, sheen: 0.3, sheenRoughness: 0.6, sheenColor: new THREE.Color("#ffffff") });
+    case "naked":
+      // a thin scrape of cream: the sponge shows through it
+      return new THREE.MeshStandardMaterial({ color: new THREE.Color(spec.sponge).lerp(new THREE.Color(spec.coat), 0.45), roughness: 0.9 });
+    default:
+      return creamMaterial(spec.coat);
+  }
+}
+const glossy = (hex: string) => new THREE.MeshPhysicalMaterial({ color: hex, roughness: 0.2, clearcoat: 1, clearcoatRoughness: 0.1 });
 const goldMaterial = () => new THREE.MeshStandardMaterial({ color: "#E2BE6A", metalness: 0.85, roughness: 0.32, emissive: "#3a2a08", emissiveIntensity: 0.6 });
 const matte = (hex: string, roughness = 0.75) => new THREE.MeshStandardMaterial({ color: hex, roughness });
 /** the accent as a material: gold leaf when it's the gold, otherwise a glossy colour */
@@ -389,22 +411,26 @@ function ringMatrices(ring: Ring, scale: number): THREE.Matrix4[] {
 export default function Cake({ spec, still }: { spec: CakeSpec; still: boolean }) {
   const font = useLoader(FontLoader, FONT);
   const layout = useMemo(() => layoutOf(spec.shape, font), [spec.shape, font]);
-  const coat = useOwned(() => creamMaterial(spec.coat), [spec.coat]);
+  const coat = useOwned(() => coatingMaterial(spec), [spec.coat, spec.coating, spec.sponge]);
   const sponge = useOwned(() => matte(spec.sponge, 0.85), [spec.sponge]);
   const crumb = useOwned(crumbTexture, []);
+  const fillingKey = spec.fillings.join("|");
+  const spongeKey = spec.sponges.join("|");
   const inside = useOwned(
     () => ({
-      sponge: new THREE.MeshStandardMaterial({ color: spec.sponge, map: crumb, roughness: 0.92 }),
+      sponges: spec.sponges.map((hex) => new THREE.MeshStandardMaterial({ color: hex, map: crumb, roughness: 0.92 })),
       cream: creamMaterial(spec.cream),
-      filling: spec.filling ? new THREE.MeshPhysicalMaterial({ color: spec.filling, roughness: 0.32, clearcoat: 0.6, clearcoatRoughness: 0.25 }) : null,
+      fillings: spec.fillings.map((hex) => (hex ? new THREE.MeshPhysicalMaterial({ color: hex, roughness: 0.32, clearcoat: 0.6, clearcoatRoughness: 0.25 }) : null)),
     }),
-    [spec.sponge, spec.cream, spec.filling, crumb],
+    [spongeKey, spec.cream, fillingKey, crumb],
   );
   const accent = useOwned(() => accentMaterial(spec.accent), [spec.accent]);
   const gold = useOwned(goldMaterial, []);
   const has = (key: PreviewAddon["key"]) => spec.addons.find((a) => a.key === key);
   const piping = has("piping") as Extract<PreviewAddon, { key: "piping" }> | undefined;
-  const pipingMat = useOwned(() => (piping?.color ? creamMaterial(piping.color) : null), [piping?.color]);
+  // a drip with no colour chosen is dark ganache: in the coat's own colour it wouldn't show
+  const pipingColor = piping?.color ?? (piping?.style === "drip" ? GANACHE : null);
+  const pipingMat = useOwned(() => (pipingColor ? (piping?.style === "drip" ? glossy(pipingColor) : creamMaterial(pipingColor)) : null), [pipingColor, piping?.style]);
 
   const sites = useMemo(() => {
     const top = layout.top;
@@ -443,7 +469,7 @@ function Shadow({ shape }: { shape: PreviewShape }) {
 
 const BOARD = "#F7F1EA";
 
-type InsideMaterials = { sponge: THREE.Material; cream: THREE.Material; filling: THREE.Material | null };
+type InsideMaterials = { sponges: THREE.Material[]; cream: THREE.Material; fillings: (THREE.Material | null)[] };
 
 function Base({ spec, layout, coat, sponge, accent, dollops, inside }: { spec: CakeSpec; layout: Layout; coat: THREE.Material; sponge: THREE.Material; accent: THREE.Material; dollops: THREE.Material; inside: InsideMaterials }) {
   const board = useOwned(() => new THREE.MeshPhysicalMaterial({ color: BOARD, roughness: 0.3, clearcoat: 0.6 }), []);
@@ -458,7 +484,7 @@ function Base({ spec, layout, coat, sponge, accent, dollops, inside }: { spec: C
       return <Tray shape={shape} notch={cut} coat={coat} board={board} />;
     }
     case "figure":
-      return <Figure figure={layout.figure!} sponge={sponge} dollops={dollops} cream={inside.cream} filling={inside.filling} board={board} />;
+      return <Figure figure={layout.figure!} sponge={sponge} dollops={dollops} cream={inside.cream} filling={inside.fillings.find((f) => f) ?? null} board={board} />;
     case "cupcakes":
       return <Cupcakes at={layout.cupcakes!} coat={coat} sponge={sponge} liner={accent} board={board} />;
   }
@@ -529,7 +555,8 @@ function Figure({ figure, sponge, dollops, cream, filling, board }: { figure: Fi
 
 /** The faces where the slice was cut: the base's sponge, the cream and the filling between the layers, the coat round them */
 function Inside({ cut, coat, inside }: { cut: Cut; coat: THREE.Material; inside: InsideMaterials }) {
-  const hasFilling = !!inside.filling;
+  const fills = inside.fillings.map((f) => !!f);
+  const fillKey = fills.join(",");
   const key = JSON.stringify(cut);
   const geos = useOwned(() => {
     const up = cut.y1 - cut.y0;
@@ -540,21 +567,27 @@ function Inside({ cut, coat, inside }: { cut: Cut; coat: THREE.Material; inside:
         { origin, along: along(WEDGE.to), facing: new THREE.Vector3(-Math.cos(WEDGE.to), 0, Math.sin(WEDGE.to)), width: cut.r },
         { origin, along: along(WEDGE.from), facing: new THREE.Vector3(Math.cos(WEDGE.from), 0, -Math.sin(WEDGE.from)), width: cut.r },
       ];
-      return cutFaces(faces, up, 3, hasFilling, roundEdge(cut.r));
+      return cutFaces(faces, up, fills, roundEdge(cut.r));
     }
     const origin = new THREE.Vector3(cut.x, cut.y0, cut.z);
     const faces: CutFace[] = [
       { origin, along: new THREE.Vector3(1, 0, 0), facing: new THREE.Vector3(0, 0, 1), width: cut.w / 2 - cut.x },
       { origin, along: new THREE.Vector3(0, 0, 1), facing: new THREE.Vector3(1, 0, 0), width: cut.d / 2 - cut.z },
     ];
-    return cutFaces(faces, up, 2, hasFilling, TRAY_EDGE);
-  }, [key, hasFilling]);
+    return cutFaces(faces, up, fills, TRAY_EDGE);
+  }, [key, fillKey]);
   return (
     <>
       {geos.coat && <mesh geometry={geos.coat} material={coat} />}
-      {geos.sponge && <mesh geometry={geos.sponge} material={inside.sponge} />}
+      {geos.sponges.map((g, i) => {
+        const m = inside.sponges[i] ?? inside.sponges[0];
+        return g && m ? <mesh key={`s${i}`} geometry={g} material={m} /> : null;
+      })}
       {geos.cream && <mesh geometry={geos.cream} material={inside.cream} />}
-      {geos.filling && inside.filling && <mesh geometry={geos.filling} material={inside.filling} />}
+      {geos.fillings.map((g, i) => {
+        const m = inside.fillings[i];
+        return g && m ? <mesh key={i} geometry={g} material={m} /> : null;
+      })}
     </>
   );
 }
@@ -581,7 +614,7 @@ function Piece(props: PieceProps) {
   const { addon: a } = props;
   switch (a.key) {
     case "piping":
-      return <Piping layout={props.layout} material={props.piping} />;
+      return <Piping layout={props.layout} material={props.piping} style={a.style} />;
     case "goldLeaf":
       return <GoldLeaf layout={props.layout} material={props.gold} />;
     case "flowers":
@@ -601,15 +634,92 @@ function Piece(props: PieceProps) {
   }
 }
 
-function Piping({ layout, material }: { layout: Layout; material: THREE.Material }) {
-  const shell = useOwned(() => shellGeometry(16), []);
-  const matrices = useMemo(
-    () => [...layout.rims.flatMap((r) => ringMatrices(r, 1)), ...layout.bases.flatMap((r) => ringMatrices(r, 1.1))].filter((m) => !inCut(layout.cut, new THREE.Vector3().setFromMatrixPosition(m))),
-    [layout],
+const RIM_INSET = 0.07; // the rims run this far in from the side (layoutOf)
+const posOf = (m: THREE.Matrix4) => new THREE.Vector3().setFromMatrixPosition(m);
+const outwardOf = (m: THREE.Matrix4) => new THREE.Vector3().setFromMatrixColumn(m, 2).normalize();
+const place = (p: THREE.Vector3, s: number, sy = s) => new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(s, sy, s));
+
+/**
+ * The piping, in the style chosen: shells, pearls, rosettes or star kisses along the top edge and
+ * round the foot; vintage is shells with swags of pearls hanging on the side; drip runs down from
+ * the top edge in drops of different lengths.
+ */
+function Piping({ layout, material, style }: { layout: Layout; material: THREE.Material; style: PipingStyle }) {
+  const geos = useOwned(
+    () => ({
+      shell: shellGeometry(16),
+      pearl: new THREE.SphereGeometry(0.05, 16, 12),
+      rosette: rosetteGeometry(),
+      kiss: kissGeometry(16).scale(0.055, 0.055, 0.055),
+      stem: dripStemGeometry(),
+      drop: dripDropGeometry(),
+    }),
+    [],
   );
+  const parts = useMemo(() => {
+    const keep = (list: THREE.Matrix4[]) => list.filter((m) => !inCut(layout.cut, posOf(m)));
+    const rims = (scale: number) => layout.rims.map((r) => ringMatrices(r, scale));
+    const bases = (scale: number) => keep(layout.bases.flatMap((r) => ringMatrices(r, scale)));
+    const out: { geometry: THREE.BufferGeometry; matrices: THREE.Matrix4[] }[] = [];
+    const lift = (list: THREE.Matrix4[], y: number) => list.map((m) => new THREE.Matrix4().makeTranslation(0, y, 0).multiply(m));
+    switch (style) {
+      case "shells":
+        out.push({ geometry: geos.shell, matrices: keep(rims(1).flat()) }, { geometry: geos.shell, matrices: bases(1.1) });
+        break;
+      case "pearls":
+        out.push({ geometry: geos.pearl, matrices: lift(keep(rims(0.85).flat()), 0.03) }, { geometry: geos.pearl, matrices: lift(bases(1), 0.035) });
+        break;
+      case "rosettes":
+        out.push({ geometry: geos.rosette, matrices: keep(rims(1.3).flat()) }, { geometry: geos.shell, matrices: bases(1.1) });
+        break;
+      case "stars":
+        out.push({ geometry: geos.kiss, matrices: keep(rims(1).flat()) }, { geometry: geos.kiss, matrices: bases(1.1) });
+        break;
+      case "vintage": {
+        const swags: THREE.Matrix4[] = [];
+        const SPAN = 7;
+        for (const ring of rims(1)) {
+          for (let i = 0; i + SPAN <= ring.length; i += SPAN) {
+            for (let j = 0; j <= SPAN; j += 0.5) {
+              const m = ring[Math.min(ring.length - 1, i + Math.floor(j))];
+              const p = posOf(m).add(outwardOf(m).multiplyScalar(RIM_INSET + 0.03));
+              p.y -= 0.06 + Math.sin((Math.PI * j) / SPAN) * 0.13;
+              swags.push(place(p, 0.55));
+            }
+          }
+        }
+        out.push({ geometry: geos.shell, matrices: keep(rims(1).flat()) }, { geometry: geos.pearl, matrices: keep(swags) }, { geometry: geos.shell, matrices: bases(1.1) });
+        break;
+      }
+      case "drip": {
+        const rnd = rng(29);
+        const lip: THREE.Matrix4[] = [];
+        const stems: THREE.Matrix4[] = [];
+        const drops: THREE.Matrix4[] = [];
+        for (const m of rims(0.5).flat()) {
+          const edge = posOf(m).add(outwardOf(m).multiplyScalar(RIM_INSET + 0.01));
+          lip.push(place(edge, 0.75, 0.5));
+          if (rnd() < 0.55) continue;
+          const length = 0.08 + rnd() ** 1.6 * 0.3;
+          const side = edge.clone().add(outwardOf(m).multiplyScalar(0.008));
+          stems.push(place(side, 1, length));
+          drops.push(place(side.clone().setY(side.y - length), 1));
+        }
+        out.push({ geometry: geos.pearl, matrices: keep(lip) }, { geometry: geos.stem, matrices: keep(stems) }, { geometry: geos.drop, matrices: keep(drops) });
+        break;
+      }
+    }
+    return out.filter((x) => x.matrices.length);
+  }, [layout, style, geos]);
   // on a number cake the cream kisses already are the piping: they take its colour (Cake)
-  if (!matrices.length) return null;
-  return <Instanced geometry={shell} material={material} matrices={matrices} />;
+  if (!parts.length) return null;
+  return (
+    <>
+      {parts.map((x, i) => (
+        <Instanced key={`${style}-${i}`} geometry={x.geometry} material={material} matrices={x.matrices} />
+      ))}
+    </>
+  );
 }
 
 function GoldLeaf({ layout, material }: { layout: Layout; material: THREE.Material }) {

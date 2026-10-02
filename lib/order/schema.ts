@@ -10,7 +10,7 @@
   (restoring a saved wizard), and the classic build would add about 27 kB to the cake page.
 */
 import * as z from "zod/mini";
-import { type Draft, MAX_ADDONS } from "./model";
+import { type Draft, KEEP_KEYS, MAX_ADDONS, MAX_LAYERS, MAX_LIKED } from "./model";
 
 // Hebrew-safe text: NFC; no control, bidi-override or zero-width characters (they can reorder or
 // hide what the owner reads in WhatsApp); trimmed; capped. Line breaks stay (the notes field).
@@ -22,6 +22,18 @@ const text = (max: number) =>
     z.overwrite((s) => s.replace(INVISIBLE, "").trim()),
     z.maxLength(max),
   );
+
+/** an https address with a host and no user:password, written by the customer; shown to the owner as text, never fetched */
+export function isInspirationLink(s: string): boolean {
+  if (!/^https:\/\//i.test(s)) return false;
+  try {
+    const u = new URL(s);
+    return u.protocol === "https:" && !!u.hostname.includes(".") && !u.username && !u.password;
+  } catch {
+    return false;
+  }
+}
+const Link = text(300).check(z.refine((s) => s === "" || isInspirationLink(s), "An https link"));
 
 /** a catalog id (size, base, cream, colour); whether it exists is checked against the catalog */
 const ref = z.string().check(z.minLength(1), z.maxLength(80));
@@ -45,9 +57,18 @@ export const DraftSchema = z.object({
   size: z.nullable(ref),
   base: z.nullable(ref),
   cream: z.nullable(ref),
-  filling: z.nullable(ref),
+  layers: z.nullable(z.int().check(z.gte(1), z.lte(MAX_LAYERS))),
+  layerBases: z.array(z.nullable(ref)).check(z.maxLength(MAX_LAYERS)),
+  fillings: z.array(z.nullable(ref)).check(z.maxLength(MAX_LAYERS - 1)),
+  coating: z.nullable(ref),
   colors: z.array(ref).check(z.maxLength(3)),
+  themeId: z.nullable(ref),
   theme: text(60),
+  liked: z.array(ref).check(z.maxLength(MAX_LIKED)),
+  exact: z.nullable(ref),
+  keep: z.array(z.enum(KEEP_KEYS)).check(z.maxLength(KEEP_KEYS.length)),
+  change: text(300),
+  link: Link,
   message: text(40),
   addons: z.array(AddonPick).check(z.maxLength(MAX_ADDONS)),
   exclusions: z.array(Exclusion).check(z.maxLength(6)),

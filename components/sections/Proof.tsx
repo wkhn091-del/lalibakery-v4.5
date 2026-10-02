@@ -9,6 +9,7 @@
 import { useRef } from "react";
 import type { HomeContent } from "@/lib/content/types";
 import { gsap, ScrollTrigger, useGSAP, MQ } from "@/lib/gsap";
+import { ORDER_PAGE } from "@/lib/routes";
 
 function Shell() {
   return (
@@ -161,6 +162,15 @@ export default function Proof({ c, items }: { c: HomeContent["proof"]; items: Pr
           ))}
         </div>
       </div>
+
+      {/* right after seeing her cakes, the moment it's wanted most: the way to order one */}
+      {c.cta && (
+        <div id="proof-cta" className="wrap mt-12 flex justify-center">
+          <a className="btn-primary" href={ORDER_PAGE}>
+            {c.cta}
+          </a>
+        </div>
+      )}
     </section>
   );
 }

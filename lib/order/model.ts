@@ -7,6 +7,7 @@
 import { PRICE_FROM, priceText } from "@/lib/price";
 import { fill } from "@/lib/text";
 import { ADDON_SEEDS, ADDONS } from "@/studio/addons";
+import { THEMES, type ThemeId } from "@/studio/themes";
 
 /* ─────────────────────────── המילים ───────────────────────────
    כל מה שההזמנה אומרת: שורות הסיכום וההודעה בוואטסאפ, המנות והמחיר, ההתנגשויות וההערות, שמות
@@ -34,10 +35,15 @@ export type OrderWords = {
     size: string;
     price: string;
     base: string;
+    layers: string;
     cream: string;
     filling: string;
+    coating: string;
     colors: string;
     idea: string;
+    inspiration: string;
+    liked: string;
+    link: string;
     message: string;
     exclusions: string;
     allergy: string;
@@ -53,6 +59,21 @@ export type OrderWords = {
   addonText: string;
   /** an add-on whose picture is sent over WhatsApp */
   addonImage: string;
+  /** "{n} שכבות ספוג" */
+  layersText: string;
+  /** one layer's filling, when they differ: "שכבה {n}: {filling}" */
+  fillingLayer: string;
+  /** a sponge layer, when the layers aren't all the same: "שכבה {n}: {base}" */
+  baseLayer: string;
+  /** the same filling between all the layers: "{filling}, בכל השכבות" */
+  fillingAll: string;
+  /** the photo chosen from the gallery: "בדיוק כמו \"{title}\"" */
+  exact: string;
+  /** what to keep from it: "לשמור: {list}" */
+  keep: string;
+  keepWords: Record<KeepKey, string>;
+  /** what to change in it: "לשנות: {text}" */
+  change: string;
   colors: Record<ColorKey, string>;
   exclusions: Record<ExclusionKey, { label: string; note: string }>;
   /** why a cream doesn't suit a removal request */
@@ -65,8 +86,13 @@ export type OrderWords = {
   conflictBaseFix: string;
   conflictFilling: string;
   conflictFillingFix: string;
+  /** the same for the coating: "{coating}" */
+  conflictCoating: string;
+  conflictCoatingFix: string;
   notices: { gluten: string; eggs: string };
 };
+export type KeepKey = "all" | "colors" | "decor" | "shape";
+export const KEEP_KEYS: KeepKey[] = ["all", "colors", "decor", "shape"];
 
 export const ORDER_WORDS: OrderWords = {
   greeting: "שלום! אשמח להזמין עוגה בהתאמה אישית מ-LALIBAKERY.",
@@ -84,10 +110,15 @@ export const ORDER_WORDS: OrderWords = {
     size: "גודל",
     price: "מחיר",
     base: "בסיס",
+    layers: "שכבות",
     cream: "קרם",
     filling: "מילוי",
+    coating: "ציפוי",
     colors: "צבעים",
     idea: "נושא או השראה",
+    inspiration: "השראה מהגלריה",
+    liked: "אהבו גם",
+    link: "קישור להשראה",
     message: "כיתוב על העוגה",
     exclusions: "בקשות הסרה",
     allergy: "אלרגיה",
@@ -99,6 +130,14 @@ export const ORDER_WORDS: OrderWords = {
   addonQty: "{n} יחידות",
   addonText: "כיתוב: {text}",
   addonImage: "התמונה תישלח בוואטסאפ",
+  layersText: "{n} שכבות ספוג",
+  fillingLayer: "בין שכבה {n} ל-{next}: {filling}",
+  baseLayer: "שכבה {n}: {base}",
+  fillingAll: "{filling}, בכל השכבות",
+  exact: "בדיוק כמו \"{title}\"",
+  keep: "לשמור: {list}",
+  keepWords: { all: "הכול", colors: "הצבעים", decor: "הקישוטים", shape: "הצורה והגודל" },
+  change: "לשנות: {text}",
   colors: {
     cream: "לבן שמנת",
     blush: "ורוד עתיק",
@@ -124,6 +163,8 @@ export const ORDER_WORDS: OrderWords = {
   conflictBaseFix: "בחירת בסיס אחר",
   conflictFilling: "המילוי שבחרתם ({filling}) {reason}, וביקשתם {request}.",
   conflictFillingFix: "בחירת מילוי אחר",
+  conflictCoating: "הציפוי שבחרתם ({coating}) {reason}, וביקשתם {request}.",
+  conflictCoatingFix: "בחירת ציפוי אחר",
   notices: {
     gluten: "ללא גלוטן: הבסיס דורש התאמה. נבדוק ונאשר איתכם לפני ההזמנה.",
     eggs: "ללא ביצים: הבסיס דורש התאמה. נבדוק ונאשר איתכם לפני ההזמנה.",
@@ -183,6 +224,8 @@ export type Category = {
   creams: string[];
   /** המילויים שאפשר להוסיף בין השכבות (לא חובה) */
   fillings?: string[];
+  /** סוגי הציפוי מבחוץ, הראשון ברירת המחדל. בלי: אין בחירת ציפוי (עוגת מספרים: נשיקות קרם) */
+  coatings?: string[];
 };
 export type Cream = {
   id: string;
@@ -195,6 +238,55 @@ export type Cream = {
 };
 /** מילוי בין השכבות: אותו מבנה כמו קרם (גוון, אלרגנים, פרווה) */
 export type Filling = Cream;
+
+/** מה מצפה את העוגה מבחוץ. הצבע הוא של העיצוב; הסוג קובע את המרקם (גם בהדמיה) */
+export type CoatingId = "buttercream" | "mascarpone" | "whipped" | "ganache" | "fondant" | "naked";
+export type Coating = { id: CoatingId; label: string; note: string; contains: Allergen[]; parve?: boolean };
+export const COATINGS: Coating[] = [
+  { id: "buttercream", label: "קרם חמאה", note: "חלק ומבריק, מחזיק צורה וצבע", contains: ["dairy"], parve: true },
+  { id: "mascarpone", label: "קרם מסקרפונה", note: "עשיר ויציב, מחזיק טוב גם בקיץ", contains: ["dairy"] },
+  { id: "whipped", label: "קצפת", note: "קלילה ואוורירית, פחות מתוקה", contains: ["dairy"], parve: true },
+  { id: "ganache", label: "גנאש שוקולד", note: "שוקולד חלק ומבריק, לעוגה כהה ואלגנטית", contains: ["dairy"], parve: true },
+  { id: "fondant", label: "בצק סוכר", note: "משטח חלק לגמרי, לדמויות ולעיצובים מורכבים", contains: [] },
+  { id: "naked", label: "נייקד (חשוף)", note: "שכבה דקה שהספוג מציץ ממנה, בסגנון כפרי", contains: ["dairy"], parve: true },
+];
+const ALL_COATINGS = COATINGS.map((x) => x.id);
+
+/** כמה שכבות ספוג אפשר לבחור, לפי הצורה: בין כל שתיים יש שכבת מילוי */
+export type LayerRange = { min: number; max: number; start: number };
+export function layersOf(size: Size | undefined): LayerRange {
+  switch (size?.visual.kind) {
+    case "figure":
+    case "cupcakes":
+      return { min: 2, max: 2, start: 2 };
+    case "tray":
+      return { min: 2, max: 3, start: 2 };
+    default:
+      return { min: 2, max: 4, start: 3 };
+  }
+}
+export const MAX_LAYERS = 4;
+
+/** הנושאים שהבונה מציע, ואיתם מסננים את הגלריה (studio/themes.ts) */
+export { THEMES, type ThemeId };
+export const isTheme = (id: string): id is ThemeId => THEMES.some((t) => t.id === id);
+
+/**
+ * עוגה שהקונדיטוריה הכינה בפועל, לגלריית ההשראה. רק עוגות שלה ורק צילומים שיש לה זכויות בהם:
+ * ב-CMS בעלת העסק מאשרת את זה בכל צילום, ובלי האישור הוא לא מוצג (sanity/queries.ts).
+ */
+export type PortfolioItem = { id: string; title: string; image: TileImage; themes: ThemeId[] };
+// הצילומים שבאתר מההתחלה (proof, content.ts), של עוגות שנאפו אצלה. proof-05 לא כאן: ייתכן שהוא השראה (IMAGES.md)
+const shot = (n: string, title: string, alt: string, themes: ThemeId[]): PortfolioItem => ({ id: `proof-${n}`, title, image: { src: `/images/proof-${n}.jpg`, alt }, themes });
+export const BUILT_IN_PORTFOLIO: PortfolioItem[] = [
+  shot("01", "רחל, 50. וינטג' עם סרטים ופנינים", "עוגת וינטג' גבוהה לבנה עם סרטים שחורים, פנינים והכיתוב רחל 50", ["adult", "vintage", "minimal"]),
+  shot("02", "יום הולדת עם כתר זהב", "עוגה עגולה לבנה עם כתר זהב, עלי זהב וכיתוב באותיות זהב", ["princess", "gold", "adult", "kids"]),
+  shot("03", "עמית, חוגג 13", "עוגת בר מצווה מלבנית עם הדפס טלית ותפילין, ספר תורה ותפילין מזהב", ["bar-mitzvah"]),
+  shot("04", "יום הולדת 38", "עוגה מלבנית עם זילוף קצפת כפול, סרטים שחורים וכיתוב Happy Birthday", ["adult", "vintage"]),
+  shot("06", "אדינה, 12. זהב, גיבסנית וסרט סאטן", "עוגה לבנה עם הספרה 12 בזהב, זר גיבסנית וסרט סאטן זהוב", ["bat-mitzvah", "gold", "flowers"]),
+  shot("07", "70, לאמא. זהב ופרחים טריים", "עוגה לבנה גבוהה עם הספרה 70, עיטור זהב, חרציות וכיתוב Happy Birthday Mama", ["adult", "gold", "flowers"]),
+];
+export const MAX_LIKED = 4;
 
 // הדמיות זמניות (IMAGES.md), עד שיגיעו צילומים של עוגות המספרים של הקונדיטוריה
 const numberShot = (n: string, alt: string, position?: string): TileImage => ({
@@ -450,6 +542,7 @@ export const CATEGORIES: Category[] = [
     bases: ROUND_BASES,
     creams: ids(CREAMS),
     fillings: ids(FILLINGS),
+    coatings: ALL_COATINGS,
   },
   {
     id: "birthday",
@@ -464,6 +557,7 @@ export const CATEGORIES: Category[] = [
     bases: ROUND_BASES,
     creams: ids(CREAMS),
     fillings: ids(FILLINGS),
+    coatings: ALL_COATINGS,
   },
   {
     id: "kindergarten",
@@ -478,6 +572,7 @@ export const CATEGORIES: Category[] = [
     bases: ROUND_BASES,
     creams: ids(CREAMS),
     fillings: ids(FILLINGS).filter((id) => id !== "coffee-soak"),
+    coatings: ["buttercream", "whipped", "ganache", "fondant"],
   },
 ];
 
@@ -550,18 +645,44 @@ export const BUILT_IN_ADDONS: Addon[] = ADDONS.filter((a) => a.key !== SHOWN_AS_
 });
 
 /** מה שהבונה מציג: הקטגוריות (עם הגדלים, הבסיסים והקרמים שלהן), הקרמים עצמם והתוספות */
-export type WizardCatalog = { categories: Category[]; creams: Cream[]; fillings?: Filling[]; addons?: Addon[] };
-export const BUILT_IN_CATALOG: WizardCatalog = { categories: CATEGORIES, creams: CREAMS, fillings: FILLINGS, addons: BUILT_IN_ADDONS };
+export type WizardCatalog = { categories: Category[]; creams: Cream[]; fillings?: Filling[]; addons?: Addon[]; portfolio?: PortfolioItem[] };
+export const BUILT_IN_CATALOG: WizardCatalog = { categories: CATEGORIES, creams: CREAMS, fillings: FILLINGS, addons: BUILT_IN_ADDONS, portfolio: BUILT_IN_PORTFOLIO };
 
-export type Cat = { categories: Category[]; cream: Record<string, Cream>; filling: Record<string, Filling>; addons: Addon[] };
+export type Cat = { categories: Category[]; cream: Record<string, Cream>; filling: Record<string, Filling>; addons: Addon[]; portfolio: PortfolioItem[] };
 // כרטיס שמעוצב סביב צילום (מעוצבות, יום הולדת) שומר על הצילום המובנה שלו כל עוד ב-CMS אין לו צילום
 const BUILT_IN = new Map(CATEGORIES.map((c) => [c.id, c]));
 export const indexed = (c: WizardCatalog): Cat => ({
-  categories: c.categories.map((x) => (x.image ? x : { ...x, image: BUILT_IN.get(x.id)?.image, gallery: BUILT_IN.get(x.id)?.gallery })),
+  categories: c.categories.map((x) => {
+    const own = BUILT_IN.get(x.id);
+    const withImage = x.image ? x : { ...x, image: own?.image, gallery: own?.gallery };
+    return withImage.coatings ? withImage : { ...withImage, coatings: own?.coatings };
+  }),
   cream: Object.fromEntries(c.creams.map((x) => [x.id, x])),
   filling: Object.fromEntries((c.fillings ?? []).map((x) => [x.id, x])),
   addons: (c.addons ?? []).filter((a) => a.key !== SHOWN_AS_FIELD),
+  portfolio: c.portfolio?.length ? c.portfolio : BUILT_IN_PORTFOLIO,
 });
+
+export const coatingsOf = (c: Category | undefined) => (c?.coatings ?? []).flatMap((id) => COATINGS.filter((x) => x.id === id));
+export const sizeOf = (c: Category | undefined, d: { size: string | null }) => c?.sizes.find((s) => s.id === d.size);
+/** how many layers the cake has: the one chosen, within what its shape allows, or the shape's usual */
+export function layerCount(c: Category | undefined, d: { size: string | null; layers: number | null }): number {
+  const r = layersOf(sizeOf(c, d));
+  return Math.min(r.max, Math.max(r.min, d.layers ?? r.start));
+}
+/** the filling between each two layers (null: cream only), as many as the cake has gaps */
+export function fillingSlots(cat: Cat, c: Category | undefined, d: Pick<Draft, "size" | "layers" | "fillings">): (Filling | null)[] {
+  return Array.from({ length: layerCount(c, d) - 1 }, (_, i) => {
+    const id = d.fillings[i];
+    return id && c?.fillings?.includes(id) ? (cat.filling[id] ?? null) : null;
+  });
+}
+
+/** the sponge of each layer, from the bottom: its own flavour where one was chosen, otherwise the main base */
+export function baseSlots(c: Category | undefined, d: Pick<Draft, "size" | "layers" | "base" | "layerBases">): (Flavour | undefined)[] {
+  const main = c?.bases.find((b) => b.id === d.base);
+  return Array.from({ length: layerCount(c, d) }, (_, i) => c?.bases.find((b) => b.id === d.layerBases[i]) ?? main);
+}
 
 /** the fillings this cake offers, as they are in the catalog */
 export const fillingsOf = (cat: Cat, c: Category | undefined) => (c?.fillings ?? []).flatMap((id) => (cat.filling[id] ? [cat.filling[id]] : []));
@@ -571,15 +692,17 @@ export const fillingsOf = (cat: Cat, c: Category | undefined) => (c?.fillings ??
  * each list with the classic first). A choice already made stays when the new type offers it; a
  * default that clashes with the removal requests is skipped for the next one that doesn't.
  */
-export function startOf(cat: Cat, c: Category, d: Draft): Pick<Draft, "size" | "base" | "cream" | "filling"> {
+export function startOf(cat: Cat, c: Category, d: Draft): Pick<Draft, "size" | "base" | "cream" | "layerBases" | "fillings" | "coating"> {
   const fits = (item: { contains?: Allergen[]; parve?: boolean }) => !clashOf(item, d.exclusions);
   const creams = c.creams.flatMap((id) => (cat.cream[id] ? [cat.cream[id]] : []));
-  const filling = d.filling ? cat.filling[d.filling] : undefined;
+  const coatings = coatingsOf(c);
   return {
     size: c.sizes.some((s) => s.id === d.size) ? d.size : (c.sizes[0]?.id ?? null),
     base: c.bases.some((b) => b.id === d.base) ? d.base : ((c.bases.find(fits) ?? c.bases[0])?.id ?? null),
     cream: d.cream && c.creams.includes(d.cream) && cat.cream[d.cream] ? d.cream : ((creams.find(fits) ?? creams[0])?.id ?? null),
-    filling: filling && c.fillings?.includes(filling.id) ? filling.id : null,
+    layerBases: d.layerBases.map((id) => (id && c.bases.some((b) => b.id === id) ? id : null)),
+    fillings: d.fillings.map((id) => (id && c.fillings?.includes(id) && cat.filling[id] ? id : null)),
+    coating: coatings.some((x) => x.id === d.coating) ? d.coating : ((coatings.find(fits) ?? coatings[0])?.id ?? null),
   };
 }
 
@@ -615,10 +738,25 @@ export type Draft = {
   size: string | null;
   base: string | null;
   cream: string | null;
-  /** null: no filling beyond the cream */
-  filling: string | null;
+  /** sponge layers; null: the shape's usual (layersOf) */
+  layers: number | null;
+  /** the sponge of each layer, from the bottom; null: the main base (`base`) */
+  layerBases: (string | null)[];
+  /** the filling between layer i and i+1; null: cream only */
+  fillings: (string | null)[];
+  /** what covers the outside (COATINGS); null where the cake has none to choose */
+  coating: string | null;
   colors: string[];
+  /** one of THEMES, or null; the words under it are `theme` */
+  themeId: string | null;
   theme: string;
+  /** photos from the gallery the customer liked, and the one they want exactly */
+  liked: string[];
+  exact: string | null;
+  keep: KeepKey[];
+  change: string;
+  /** a link to an inspiration picture of their own (shown to the owner as text, never fetched) */
+  link: string;
   message: string;
   addons: AddonPick[];
   exclusions: ExclusionId[];
@@ -633,9 +771,18 @@ export const EMPTY: Draft = {
   size: null,
   base: null,
   cream: null,
-  filling: null,
+  layers: null,
+  layerBases: [],
+  fillings: [],
+  coating: null,
   colors: [],
+  themeId: null,
   theme: "",
+  liked: [],
+  exact: null,
+  keep: [],
+  change: "",
+  link: "",
   message: "",
   addons: [],
   exclusions: [],
@@ -678,7 +825,7 @@ export function clashOf(item: { contains?: Allergen[]; parve?: boolean }, exclus
 export const creamClash = clashOf;
 
 export type Issue = {
-  id: "conflict" | "conflict-base" | "conflict-filling" | "gluten" | "eggs";
+  id: "conflict" | "conflict-base" | "conflict-filling" | "conflict-coating" | "gluten" | "eggs";
   kind: "conflict" | "notice";
   text: string;
   fix?: { label: string; step: Step };
@@ -687,15 +834,26 @@ export type Issue = {
 /** התנגשויות (חוסמות שליחה, כי אלה אלרגנים) והערות (לא חוסמות) */
 export function issuesOf(cat: Cat, d: Draft, w: OrderWords = ORDER_WORDS): Issue[] {
   const out: Issue[] = [];
-  const base = categoryOf(cat, d.category)?.bases.find((b) => b.id === d.base);
-  const baseClash = base && clashOf(base, d.exclusions, w);
-  if (base && baseClash) out.push({ id: "conflict-base", kind: "conflict", text: fill(w.conflictBase, { base: base.label, ...baseClash }), fix: { label: w.conflictBaseFix, step: 1 } });
+  const c = categoryOf(cat, d.category);
+  const bases = [...new Set(baseSlots(c, d).filter((b) => b != null))];
+  const baseClash = bases.flatMap((b) => {
+    const why = clashOf(b, d.exclusions, w);
+    return why ? [{ b, why }] : [];
+  })[0];
+  // the main base is picked in step 2; a layer of its own, with the layers in step 3
+  if (baseClash) out.push({ id: "conflict-base", kind: "conflict", text: fill(w.conflictBase, { base: baseClash.b.label, ...baseClash.why }), fix: { label: w.conflictBaseFix, step: baseClash.b.id === d.base ? 1 : 2 } });
   const cream = d.cream ? cat.cream[d.cream] : undefined;
   const clash = cream && clashOf(cream, d.exclusions, w);
   if (cream && clash) out.push({ id: "conflict", kind: "conflict", text: fill(w.conflict, { cream: cream.label, ...clash }), fix: { label: w.conflictFix, step: 2 } });
-  const filling = d.filling ? cat.filling[d.filling] : undefined;
-  const fillingClash = filling && clashOf(filling, d.exclusions, w);
-  if (filling && fillingClash) out.push({ id: "conflict-filling", kind: "conflict", text: fill(w.conflictFilling, { filling: filling.label, ...fillingClash }), fix: { label: w.conflictFillingFix, step: 2 } });
+  const fillings = [...new Set(fillingSlots(cat, c, d).filter((f) => f != null))];
+  const fillingClash = fillings.flatMap((f) => {
+    const why = clashOf(f, d.exclusions, w);
+    return why ? [{ f, why }] : [];
+  })[0];
+  if (fillingClash) out.push({ id: "conflict-filling", kind: "conflict", text: fill(w.conflictFilling, { filling: fillingClash.f.label, ...fillingClash.why }), fix: { label: w.conflictFillingFix, step: 2 } });
+  const coating = coatingsOf(c).find((x) => x.id === d.coating);
+  const coatingClash = coating && clashOf(coating, d.exclusions, w);
+  if (coating && coatingClash) out.push({ id: "conflict-coating", kind: "conflict", text: fill(w.conflictCoating, { coating: coating.label, ...coatingClash }), fix: { label: w.conflictCoatingFix, step: 2 } });
   if (d.exclusions.includes("no-gluten")) out.push({ id: "gluten", kind: "notice", text: w.notices.gluten });
   if (d.exclusions.includes("no-eggs")) out.push({ id: "eggs", kind: "notice", text: w.notices.eggs });
   return out;
@@ -712,6 +870,28 @@ export function chosenAddons(cat: Cat, d: Draft): [Addon, AddonPick][] {
   });
 }
 
+/** "ריבת תות" (שכבה אחת), "ריבת תות, בכל השכבות", או "שכבה 1: ריבת תות; שכבה 2: גנאש" */
+function fillingsText(slots: (Filling | null)[], suffix: (f: Filling) => string, w: OrderWords): string {
+  const used = slots.flatMap((f, i) => (f ? [{ f, n: i + 1 }] : []));
+  if (!used.length) return "";
+  if (slots.length === 1) return used[0].f.label + suffix(used[0].f);
+  if (used.length === slots.length && used.every((x) => x.f.id === used[0].f.id)) return fill(w.fillingAll, { filling: used[0].f.label + suffix(used[0].f) });
+  return used.map(({ f, n }) => fill(w.fillingLayer, { n, next: n + 1, filling: f.label + suffix(f) })).join("; ");
+}
+
+/** the gallery photos the customer picked, only ones the catalog still has */
+export function inspirationOf(cat: Cat, d: Pick<Draft, "exact" | "liked" | "keep" | "change" | "link">, w: OrderWords = ORDER_WORDS) {
+  const byId = (id: string) => cat.portfolio.find((p) => p.id === id);
+  const exact = d.exact ? byId(d.exact) : undefined;
+  return {
+    exact,
+    keep: exact ? KEEP_KEYS.filter((k) => d.keep.includes(k)).map((k) => w.keepWords[k]) : [],
+    change: exact ? d.change.trim() : "",
+    liked: d.liked.filter((id) => id !== d.exact).flatMap((id) => byId(id) ?? []),
+    link: d.link.trim(),
+  };
+}
+
 /** כל הפרטים, בסדר הקריאה. משמש לסיכום, לעוגה שבצד ולהודעה */
 export function rowsOf(cat: Cat, d: Draft, w: OrderWords = ORDER_WORDS): Row[] {
   const c = categoryOf(cat, d.category);
@@ -724,13 +904,26 @@ export function rowsOf(cat: Cat, d: Draft, w: OrderWords = ORDER_WORDS): Row[] {
   const price = size && priceOf(size, d.figure);
   if (price != null) rows.push({ key: "price", label: l.price, text: priceText(price, w.priceFrom), step: 1 });
   const base = c.bases.find((b) => b.id === d.base);
-  if (base) rows.push({ key: "base", label: l.base, text: base.label, step: 1 });
+  const slots = baseSlots(c, d);
+  const mixed = slots.some((b) => b && b.id !== base?.id);
+  if (base)
+    rows.push({ key: "base", label: l.base, text: mixed ? slots.flatMap((b, i) => (b ? [fill(w.baseLayer, { n: i + 1, base: b.label })] : [])).join("; ") : base.label, step: mixed ? 2 : 1 });
   const cream = d.cream ? cat.cream[d.cream] : undefined;
   if (cream) rows.push({ key: "cream", label: l.cream, text: cream.label + (d.exclusions.includes("no-dairy") && cream.parve ? `, ${w.parve}` : ""), step: 2 });
-  const filling = d.filling ? cat.filling[d.filling] : undefined;
-  if (filling) rows.push({ key: "filling", label: l.filling, text: filling.label + (d.exclusions.includes("no-dairy") && filling.parve ? `, ${w.parve}` : ""), step: 2 });
+  const parve = (x: { parve?: boolean }) => (d.exclusions.includes("no-dairy") && x.parve ? `, ${w.parve}` : "");
+  const range = layersOf(size);
+  if (range.max > range.min) rows.push({ key: "layers", label: l.layers, text: fill(w.layersText, { n: layerCount(c, d) }), step: 2 });
+  const fillingText = fillingsText(fillingSlots(cat, c, d), parve, w);
+  if (fillingText) rows.push({ key: "filling", label: l.filling, text: fillingText, step: 2 });
+  const coating = coatingsOf(c).find((x) => x.id === d.coating);
+  if (coating) rows.push({ key: "coating", label: l.coating, text: coating.label + parve(coating), step: 2 });
   if (d.colors.length) rows.push({ key: "colors", label: l.colors, text: d.colors.map((id) => colorName(id, w)).join(", "), step: 2 });
-  if (d.theme.trim()) rows.push({ key: "theme", label: l.idea, text: d.theme.trim(), step: 2 });
+  const idea = [THEMES.find((t) => t.id === d.themeId)?.label, d.theme.trim()].filter(Boolean).join(", ");
+  if (idea) rows.push({ key: "theme", label: l.idea, text: idea, step: 2 });
+  const insp = inspirationOf(cat, d, w);
+  if (insp.exact) rows.push({ key: "inspiration", label: l.inspiration, text: [fill(w.exact, { title: insp.exact.title }), insp.keep.length ? fill(w.keep, { list: insp.keep.join(", ") }) : "", insp.change ? fill(w.change, { text: insp.change }) : ""].filter(Boolean).join("; "), step: 2 });
+  if (insp.liked.length) rows.push({ key: "liked", label: l.liked, text: insp.liked.map((x) => x.title).join(", "), step: 2 });
+  if (insp.link) rows.push({ key: "link", label: l.link, text: insp.link, step: 2 });
   if (d.message.trim()) rows.push({ key: "message", label: l.message, text: d.message.trim(), step: 2 });
   const addons = chosenAddons(cat, d);
   if (addons.length) rows.push({ key: "addons", label: l.addons, text: addons.map(([a, p]) => addonLine(a, p, w)).join("; "), step: 2 });
@@ -754,10 +947,17 @@ export type CakeOrder = {
   price?: number;
   base: { id: string; label: string };
   cream: { id: string; label: string; parve: boolean };
-  filling?: { id: string; label: string; parve: boolean };
+  layers: number;
+  /** כשהשכבות לא כולן מאותו בסיס: הספוג של כל שכבה, מלמטה */
+  layerBases?: { layer: number; id: string; label: string }[];
+  /** רק השכבות שיש בהן מילוי (layer: 1 בין הספוג הראשון לשני) */
+  fillings: { layer: number; id: string; label: string; parve: boolean }[];
+  coating?: { id: string; label: string; parve: boolean };
   /** שמות הצבעים ("תבחרו אתם" כשהבחירה אצלכם) */
   colors: string[];
+  themeId?: { id: string; label: string };
   theme?: string;
+  inspiration?: { exact?: { id: string; title: string; keep: string[]; change?: string }; liked: { id: string; title: string }[]; link?: string };
   message?: string;
   addons: { key: string; title: string; option?: string; color?: string; qty?: number; text?: string; imageByWhatsapp?: true }[];
   exclusions: { id: ExclusionId; label: string }[];
@@ -774,9 +974,13 @@ export function orderOf(cat: Cat, d: Draft, w: OrderWords = ORDER_WORDS): CakeOr
   const size = c?.sizes.find((s) => s.id === d.size);
   const base = c?.bases.find((b) => b.id === d.base);
   const cream = d.cream ? cat.cream[d.cream] : undefined;
-  const filling = d.filling && c?.fillings?.includes(d.filling) ? cat.filling[d.filling] : undefined;
   if (!c || !size || !base || !cream) return null;
   const text = (s: string) => s.trim() || undefined;
+  const parve = d.exclusions.includes("no-dairy");
+  const coating = coatingsOf(c).find((x) => x.id === d.coating);
+  const theme = THEMES.find((t) => t.id === d.themeId);
+  const insp = inspirationOf(cat, d, w);
+  const sponges = baseSlots(c, d);
   return {
     category: { id: c.id, title: c.title },
     figure: c.figure ? figureOf(d.figure) : undefined,
@@ -784,9 +988,22 @@ export function orderOf(cat: Cat, d: Draft, w: OrderWords = ORDER_WORDS): CakeOr
     price: priceOf(size, d.figure),
     base: { id: base.id, label: base.label },
     cream: { id: cream.id, label: cream.label, parve: d.exclusions.includes("no-dairy") },
-    ...(filling ? { filling: { id: filling.id, label: filling.label, parve: d.exclusions.includes("no-dairy") } } : {}),
+    layers: layerCount(c, d),
+    ...(sponges.some((b) => b && b.id !== base.id) ? { layerBases: sponges.flatMap((b, i) => (b ? [{ layer: i + 1, id: b.id, label: b.label }] : [])) } : {}),
+    fillings: fillingSlots(cat, c, d).flatMap((f, i) => (f ? [{ layer: i + 1, id: f.id, label: f.label, parve }] : [])),
+    ...(coating ? { coating: { id: coating.id, label: coating.label, parve } } : {}),
     colors: d.colors.map((id) => colorName(id, w)),
+    ...(theme ? { themeId: { id: theme.id, label: theme.label } } : {}),
     theme: text(d.theme),
+    ...(insp.exact || insp.liked.length || insp.link
+      ? {
+          inspiration: {
+            ...(insp.exact ? { exact: { id: insp.exact.id, title: insp.exact.title, keep: insp.keep, ...(insp.change ? { change: insp.change } : {}) } } : {}),
+            liked: insp.liked.map((x) => ({ id: x.id, title: x.title })),
+            ...(insp.link ? { link: insp.link } : {}),
+          },
+        }
+      : {}),
     message: text(d.message),
     addons: chosenAddons(cat, d).map(([a, p]) => ({
       key: a.key,

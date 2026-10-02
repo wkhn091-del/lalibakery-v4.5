@@ -23,7 +23,7 @@ import { allow } from "@/lib/ratelimit";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { getCakePage } from "@/sanity/content";
-import { getCatalog } from "@/sanity/data";
+import { getCatalog, getPortfolio } from "@/sanity/data";
 import { getStoreSettings, getWizardAddons } from "@/sanity/shop";
 
 export type CakeRequestError = "fields" | "robot" | "busy" | "date" | "date_full" | "too_many" | "closed" | "error";
@@ -50,8 +50,8 @@ export async function sendCakeRequest(input: unknown): Promise<CakeRequestResult
   let checked;
   let settings;
   try {
-    const [catalog, addons, page, store] = await Promise.all([getCatalog(), getWizardAddons(), getCakePage(false), getStoreSettings({ published: true })]);
-    const cat = indexed({ ...(catalog ?? BUILT_IN_CATALOG), addons });
+    const [catalog, addons, portfolio, page, store] = await Promise.all([getCatalog(), getWizardAddons(), getPortfolio(), getCakePage(false), getStoreSettings({ published: true })]);
+    const cat = indexed({ ...(catalog ?? BUILT_IN_CATALOG), addons, ...(portfolio ? { portfolio } : {}) });
     checked = validateOrder(req.draft, cat, israelDate(), page.wizard.order);
     settings = store;
   } catch (error) {

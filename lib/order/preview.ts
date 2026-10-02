@@ -3,8 +3,9 @@
   טהור ובלי three.js, כדי שאפשר יהיה לבדוק אותו. יחידה אחת = 10 ס״מ.
   איך נראית אפשרות של תוספת נקבע לפי המקום שלה ברשימה (ב-CMS המזהים שלהן אקראיים):
   פירות: תותים, פירות יער, מעורב. פרחים: טריים, מסוכר. נרות: נרות, נר מספר, נצנצים.
+  זילוף: צדפים, פנינים, שושנים, רישות וינטג', טפטוף, כוכבים.
 */
-import { type Cat, categoryOf, chosenAddons, COLORS, type Draft, figureOf, FIGURE } from "./model";
+import { baseSlots, type Cat, categoryOf, chosenAddons, type CoatingId, coatingsOf, COLORS, type Draft, fillingSlots, figureOf, FIGURE } from "./model";
 
 export type PreviewShape =
   | { kind: "round"; radius: number; height: number }
@@ -13,8 +14,12 @@ export type PreviewShape =
   | { kind: "figure"; text: string; size: number; layer: number }
   | { kind: "cupcakes"; count: number };
 
+/** the piping's options, in their order in the add-on (studio/addons.ts) */
+export const PIPING_STYLES = ["shells", "pearls", "rosettes", "vintage", "drip", "stars"] as const;
+export type PipingStyle = (typeof PIPING_STYLES)[number];
+
 export type PreviewAddon =
-  | { key: "piping"; color: string | null }
+  | { key: "piping"; color: string | null; style: PipingStyle }
   | { key: "flowers"; color: string | null; fresh: boolean }
   | { key: "goldLeaf" }
   | { key: "macarons"; color: string | null; count: number }
@@ -34,7 +39,13 @@ export type CakeSpec = {
   sponge: string;
   /** what's inside, in the cut slice: the cream between the layers (its own colour, not the coat's) and the filling */
   cream: string;
-  filling: string | null;
+  /** sponge layers in the cut slice, and the filling's colour in each gap between them (null: cream only) */
+  layers: number;
+  /** each layer's sponge colour, from the bottom (a layer can be another flavour than the base) */
+  sponges: string[];
+  fillings: (string | null)[];
+  /** what covers the outside: it sets the finish (matte whipped cream, glossy ganache, smooth fondant, naked) */
+  coating: CoatingId | null;
   message: string;
   addons: PreviewAddon[];
 };
@@ -85,7 +96,8 @@ export function previewOf(cat: Cat, d: Draft): CakeSpec | null {
   const cream = d.cream ? cat.cream[d.cream] : undefined;
   const palette = d.colors.map(hexOf).filter((x): x is string => !!x);
   const base = c.bases.find((b) => b.id === d.base);
-  const filling = d.filling && c.fillings?.includes(d.filling) ? cat.filling[d.filling] : undefined;
+  const slots = fillingSlots(cat, c, d);
+  const coating = coatingsOf(c).find((x) => x.id === d.coating)?.id ?? null;
 
   const digits = (shape.kind === "figure" ? shape.text : d.message).replace(/\D/g, "").slice(0, 3);
   const addons = chosenAddons(cat, d).map(([a, p]): PreviewAddon | null => {
@@ -93,7 +105,7 @@ export function previewOf(cat: Cat, d: Draft): CakeSpec | null {
     const at = optionIndex(a.options, p.option);
     switch (a.key) {
       case "piping":
-        return { key: "piping", color };
+        return { key: "piping", color, style: PIPING_STYLES[at] ?? "shells" };
       case "flowers":
         return { key: "flowers", color, fresh: at === 0 };
       case "goldLeaf":
@@ -121,7 +133,10 @@ export function previewOf(cat: Cat, d: Draft): CakeSpec | null {
     accent: palette[1] ?? GOLD,
     sponge: toneOf(base?.tone) ?? NEUTRAL_SPONGE,
     cream: toneOf(cream?.tone) ?? NEUTRAL_CREAM,
-    filling: toneOf(filling?.tone) ?? null,
+    layers: slots.length + 1,
+    sponges: baseSlots(c, d).map((b) => toneOf(b?.tone) ?? toneOf(base?.tone) ?? NEUTRAL_SPONGE),
+    fillings: slots.map((f) => toneOf(f?.tone) ?? null),
+    coating,
     message: d.message.trim(),
     addons: addons.filter((x): x is PreviewAddon => !!x),
   };

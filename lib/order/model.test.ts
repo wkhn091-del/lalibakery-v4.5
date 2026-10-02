@@ -8,14 +8,14 @@ const designer = categoryOf(cat, "designer")!;
 
 describe("startOf", () => {
   it("starts from the type's first size, base and cream, with no filling", () => {
-    assert.deepEqual(startOf(cat, designer, EMPTY), { size: "d16", base: "vanilla", cream: "vanilla", filling: null });
+    assert.deepEqual(startOf(cat, designer, EMPTY), { size: "d16", base: "vanilla", cream: "vanilla", layerBases: [], fillings: [], coating: "buttercream" });
   });
 
   it("keeps what was chosen when the new type offers it", () => {
-    const d = { ...EMPTY, size: "d20", base: "lemon", cream: "lotus", filling: "coffee-soak" };
-    assert.deepEqual(startOf(cat, designer, d), { size: "d20", base: "lemon", cream: "lotus", filling: "coffee-soak" });
+    const d = { ...EMPTY, size: "d20", base: "lemon", cream: "lotus", fillings: ["coffee-soak", "ganache"], coating: "mascarpone" as const };
+    assert.deepEqual(startOf(cat, designer, d), { size: "d20", base: "lemon", cream: "lotus", layerBases: [], fillings: ["coffee-soak", "ganache"], coating: "mascarpone" });
     const kindergarten = categoryOf(cat, "kindergarten")!;
-    assert.deepEqual(startOf(cat, kindergarten, d), { size: "tray-s", base: "lemon", cream: "lotus", filling: null });
+    assert.deepEqual(startOf(cat, kindergarten, d), { size: "tray-s", base: "lemon", cream: "lotus", layerBases: [], fillings: [null, "ganache"], coating: "buttercream" });
   });
 
   it("skips a default that clashes with the removal requests", () => {

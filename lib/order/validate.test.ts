@@ -47,26 +47,88 @@ describe("validateOrder", () => {
     if (!notOffered.ok) assert.ok(notOffered.fields.cream);
   });
 
-  it("takes an optional filling, only one the cake offers", () => {
+  it("takes an optional filling per layer, only ones the cake offers", () => {
     const none = validateOrder(good, cat, TODAY);
-    assert.ok(none.ok && !none.order.filling);
-    const jam = validateOrder({ ...good, filling: "strawberry-jam" }, cat, TODAY);
-    assert.ok(jam.ok);
-    if (jam.ok) {
-      assert.equal(jam.order.filling?.label, "ריבת תות");
-      assert.match(jam.order.summary, /מילוי: ריבת תות/);
+    assert.ok(none.ok && none.order.fillings.length === 0 && none.order.layers === 3);
+    const same = validateOrder({ ...good, fillings: ["strawberry-jam", "strawberry-jam"] }, cat, TODAY);
+    assert.ok(same.ok);
+    if (same.ok) {
+      assert.deepEqual(same.order.fillings.map((f) => f.layer), [1, 2]);
+      assert.match(same.order.summary, /מילוי: ריבת תות, בכל השכבות/);
     }
-    const notOffered = validateOrder({ ...good, category: "kindergarten", size: "tray-s", filling: "coffee-soak" }, cat, TODAY);
-    assert.ok(!notOffered.ok && notOffered.fields.filling);
-    const unknown = validateOrder({ ...good, filling: "x".repeat(81) }, cat, TODAY);
-    assert.ok(!unknown.ok && unknown.fields.filling);
+    const mixed = validateOrder({ ...good, layers: 4, fillings: ["strawberry-jam", null, "ganache"] }, cat, TODAY);
+    assert.ok(mixed.ok);
+    if (mixed.ok) {
+      assert.equal(mixed.order.layers, 4);
+      assert.match(mixed.order.summary, /בין שכבה 1 ל-2: ריבת תות; בין שכבה 3 ל-4: /);
+    }
+    const notOffered = validateOrder({ ...good, category: "kindergarten", size: "tray-s", fillings: ["coffee-soak"] }, cat, TODAY);
+    assert.ok(!notOffered.ok && notOffered.fields.fillings);
+    const unknown = validateOrder({ ...good, fillings: ["x".repeat(81)] }, cat, TODAY);
+    assert.ok(!unknown.ok && unknown.fields.fillings);
+    const tooMany = validateOrder({ ...good, layers: 2, fillings: ["strawberry-jam", "strawberry-jam"] }, cat, TODAY);
+    assert.ok(!tooMany.ok && tooMany.fields.fillings);
+  });
+
+  it("takes a sponge of its own per layer, only ones the cake offers", () => {
+    const mixed = validateOrder({ ...good, layerBases: [null, "chocolate", null] }, cat, TODAY);
+    assert.ok(mixed.ok);
+    if (mixed.ok) {
+      assert.deepEqual(mixed.order.layerBases?.map((b) => [b.layer, b.id]), [[1, "vanilla"], [2, "chocolate"], [3, "vanilla"]]);
+      assert.match(mixed.order.summary, /שכבה 2: /);
+    }
+    const same = validateOrder({ ...good, layerBases: ["vanilla", null, null] }, cat, TODAY);
+    assert.ok(same.ok && same.order.layerBases === undefined);
+    const notOffered = validateOrder({ ...good, layerBases: ["sable-vanilla"] }, cat, TODAY);
+    assert.ok(!notOffered.ok && notOffered.fields.layerBases);
+    const tooMany = validateOrder({ ...good, layers: 2, layerBases: [null, null, "chocolate"] }, cat, TODAY);
+    assert.ok(!tooMany.ok && tooMany.fields.layerBases);
+    const nuts = validateOrder({ ...good, layerBases: [null, "pistachio"], exclusions: ["no-nuts"] }, cat, TODAY);
+    assert.equal(nuts.ok, false);
+  });
+
+  it("keeps the layers within what the size allows", () => {
+    const tray = validateOrder({ ...good, category: "kindergarten", size: "tray-s", layers: 4 }, cat, TODAY);
+    assert.ok(!tray.ok && tray.fields.layers);
+    const five = validateOrder({ ...good, layers: 5 }, cat, TODAY);
+    assert.ok(!five.ok && five.fields.layers);
+  });
+
+  it("takes a coating the cake offers, and blocks one that clashes", () => {
+    const ok = validateOrder({ ...good, coating: "fondant" }, cat, TODAY);
+    assert.ok(ok.ok && ok.order.coating?.label === "בצק סוכר");
+    const notOffered = validateOrder({ ...good, category: "kindergarten", size: "tray-s", coating: "mascarpone" }, cat, TODAY);
+    assert.ok(!notOffered.ok && notOffered.fields.coating);
+    const dairy = validateOrder({ ...good, coating: "mascarpone", exclusions: ["no-dairy"] }, cat, TODAY);
+    assert.ok(!dairy.ok && dairy.fields.coating);
   });
 
   it("blocks a base or a filling with nuts when nuts were excluded", () => {
     const base = validateOrder({ ...good, base: "pistachio", exclusions: ["no-nuts"] }, cat, TODAY);
     assert.ok(!base.ok && base.fields.base && !base.fields.cream);
-    const filling = validateOrder({ ...good, filling: "dubai", exclusions: ["no-nuts"] }, cat, TODAY);
-    assert.ok(!filling.ok && filling.fields.filling && !filling.fields.cream);
+    const filling = validateOrder({ ...good, fillings: [null, "dubai"], exclusions: ["no-nuts"] }, cat, TODAY);
+    assert.ok(!filling.ok && filling.fields.fillings && !filling.fields.cream);
+  });
+
+  it("takes the theme and gallery picks only from the lists", () => {
+    const r = validateOrder({ ...good, themeId: "gold", exact: "proof-02", keep: ["colors", "decor"], change: "בלי כתר", liked: ["proof-06"] }, cat, TODAY);
+    assert.ok(r.ok);
+    if (r.ok) {
+      assert.equal(r.order.themeId?.label, "זהב ואלגנטי");
+      assert.equal(r.order.inspiration?.exact?.id, "proof-02");
+      assert.match(r.order.summary, /לשמור: הצבעים, הקישוטים; לשנות: בלי כתר/);
+    }
+    assert.ok(!validateOrder({ ...good, themeId: "dragons" }, cat, TODAY).ok);
+    assert.ok(!validateOrder({ ...good, exact: "someone-elses-photo" }, cat, TODAY).ok);
+    assert.ok(!validateOrder({ ...good, liked: ["proof-01", "proof-02", "proof-03", "proof-04", "proof-06"] }, cat, TODAY).ok);
+  });
+
+  it("takes an inspiration link only as a plain https address", () => {
+    assert.ok(validateOrder({ ...good, link: "https://www.pinterest.com/pin/123" }, cat, TODAY).ok);
+    for (const link of ["javascript:alert(1)", "http://example.com/a", "https://user:pw@example.com", "data:text/html,x", "https://localhost/x", `https://a.com/${"x".repeat(300)}`]) {
+      const r = validateOrder({ ...good, link }, cat, TODAY);
+      assert.ok(!r.ok && r.fields.link, link);
+    }
   });
 
   it("refuses a 5 KB inscription before doing any work on it", () => {
@@ -161,7 +223,7 @@ describe("validateOrder", () => {
   it("notes that an edible print's picture comes over WhatsApp", () => {
     const r = validateOrder({ ...good, category: "birthday", size: "d22", addons: [{ key: "ediblePrint", option: null, color: null, text: "", qty: null }] }, cat, TODAY);
     assert.equal(r.ok, true);
-    if (r.ok) assert.match(r.order.summary, /הדפס תמונה אכילה: התמונה תישלח בוואטסאפ/);
+    if (r.ok) assert.match(r.order.summary, /דף סוכר מודפס בעיצוב אישי: התמונה תישלח בוואטסאפ/);
   });
 
   it("knows today's date in Israel", () => {
